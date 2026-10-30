@@ -91,6 +91,7 @@ function calc(t){
  if(t.dur!=null&&t.evMin!=null)r.iceMin=Math.max(0,t.dur-t.evMin);
  r.iceCons=r.fuel!=null&&r.iceDist>0.05?r.fuel/r.iceDist*100:null;
  r.evShare=t.dist>0&&t.evDist!=null?t.evDist/t.dist*100:null;
+ r.evTime=t.dur>0&&t.evMin!=null?t.evMin/t.dur*100:null;
  r.evSpeed=t.evMin>0&&t.evDist!=null?t.evDist/(t.evMin/60):null;
  r.iceSpeed=r.iceMin>0&&r.iceDist!=null?r.iceDist/(r.iceMin/60):null;
  return r;
@@ -131,9 +132,9 @@ async function ocr(file){
 const rd=()=>{const t={date:$('#f_date').value};FD.slice(1).forEach(([k])=>t[k]=num($('#f_'+k).value));return t};
 const fill=t=>FD.forEach(([k])=>{const v=t[k];$('#f_'+k).value=v==null?'':k==='date'?v:String(v).replace('.',',')});
 function upd(){
- const t=rd(),r=calc(t),e=r.evShare==null?0:Math.min(100,r.evShare);
+ const t=rd(),r=calc(t),e=r.evShare==null?0:Math.min(100,r.evShare),e2=r.evTime==null?0:Math.min(100,r.evTime);
  $('#warns').innerHTML=checks(t,r).map(w=>`<div class="warn">${w}</div>`).join('');
- $('#calc').innerHTML=`<div class="mute">Realne spalanie na silniku spalinowym</div><div class="big">${nf(r.iceCons)} <small>l/100 km</small></div><div class="bar"><i style="width:${e}%"></i></div><div class="mute" style="margin-bottom:6px">Udział trybu EV w dystansie: ${nf(r.evShare,0)}%</div>`+
+ $('#calc').innerHTML=`<div class="mute">Realne spalanie na silniku spalinowym</div><div class="big">${nf(r.iceCons)} <small>l/100 km</small></div><div class="bar"><i style="width:${e}%"></i></div><div class="mute">Udział trybu EV w dystansie: ${nf(r.evShare,0)}%</div><div class="bar" style="margin-top:12px"><i style="width:${e2}%"></i></div><div class="mute" style="margin-bottom:6px">Udział trybu EV w czasie jazdy: ${nf(r.evTime,0)}%</div>`+
   kv('Spalone paliwo w całym przejeździe',nf(r.fuel,2)+' l')+kv('Dystans na silniku spalinowym',nf(r.iceDist)+' km')+kv('Czas jazdy w trybie EV',nf(t.evMin,0)+' min')+kv('Czas na silniku spalinowym',nf(r.iceMin,0)+' min')+kv('Śr. prędkość w trybie EV',nf(r.evSpeed,0)+' km/h')+kv('Śr. prędkość na spalinie',nf(r.iceSpeed,0)+' km/h');
 }
 let editId=null,editCreated=null;
