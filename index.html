@@ -31,7 +31,7 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 .kv b{font-variant-numeric:tabular-nums;white-space:nowrap}
 .warn{background:var(--wbg);color:var(--warn);border-radius:12px;padding:10px 12px;margin-top:12px;font-size:14px}
 .trip{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
-.trip:first-child{border-top:0;padding-top:0}.trip>div{flex:1}
+.trip:first-child{border-top:0;padding-top:0}.open{flex:1;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}.open span{display:block}
 .trip .n{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--acc);font-variant-numeric:tabular-nums}
 .x{width:44px;min-height:44px;padding:0;color:var(--mute);flex:none}
 #th{width:56px;border-radius:8px;border:1px solid var(--line)}
@@ -51,7 +51,7 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 </section>
 
 <section class="card" id="form" hidden>
- <div class="row" style="align-items:center"><h2 style="margin:0;flex:1">Sprawdź odczytane dane</h2><img id="th" alt="" hidden></div>
+ <div class="row" style="align-items:center"><h2 id="ft" style="margin:0;flex:1">Sprawdź odczytane dane</h2><img id="th" alt="" hidden></div>
  <div class="grid" id="fields" style="margin-top:12px"></div>
  <div id="warns"></div>
  <div id="calc" style="margin-top:16px"></div>
@@ -59,7 +59,7 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 </section>
 
 <section class="card"><h2>Podsumowanie archiwum</h2><div id="sum"></div></section>
-<section class="card"><h2>Historia przejazdów</h2><div id="list"></div></section>
+<section class="card"><h2>Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Kopia zapasowa</h2>
  <div class="row"><button class="btn" id="eJ">Eksport JSON</button><button class="btn" id="eC">Eksport CSV</button></div>
  <div class="row" style="margin-top:10px"><label class="btn" for="imp">Import JSON</label></div>
@@ -80,7 +80,7 @@ const today=()=>new Date().toLocaleDateString('sv-SE');
 /* baza danych (IndexedDB) */
 const DB=new Promise((res,rej)=>{const q=indexedDB.open('przejazdy',1);q.onupgradeneeded=()=>q.result.createObjectStore('trips',{keyPath:'id',autoIncrement:true});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
 const tx=async(mode,fn)=>{const db=await DB;return new Promise((res,rej)=>{const t=db.transaction('trips',mode),o=fn(t.objectStore('trips'));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
-const all=()=>tx('readonly',s=>s.getAll()),add=t=>tx('readwrite',s=>s.add(t)),del=id=>tx('readwrite',s=>s.delete(id));
+const all=()=>tx('readonly',s=>s.getAll()),add=t=>tx('readwrite',s=>s.add(t)),put=t=>tx('readwrite',s=>s.put(t)),del=id=>tx('readwrite',s=>s.delete(id));
 const key=t=>[t.date,t.dist,t.dur,t.cons].join('|');
 
 /* wyliczenia: spalanie realne = paliwo z całego przejazdu / dystans poza trybem EV */
@@ -136,10 +136,11 @@ function upd(){
  $('#calc').innerHTML=`<div class="mute">Realne spalanie na silniku spalinowym</div><div class="big">${nf(r.iceCons)} <small>l/100 km</small></div><div class="bar"><i style="width:${e}%"></i></div><div class="mute" style="margin-bottom:6px">Udział trybu EV w dystansie: ${nf(r.evShare,0)}%</div>`+
   kv('Spalone paliwo w całym przejeździe',nf(r.fuel,2)+' l')+kv('Dystans na silniku spalinowym',nf(r.iceDist)+' km')+kv('Czas na silniku spalinowym',nf(r.iceMin,0)+' min')+kv('Śr. prędkość w trybie EV',nf(r.evSpeed,0)+' km/h')+kv('Śr. prędkość na spalinie',nf(r.iceSpeed,0)+' km/h');
 }
-function show(t,img){fill(t);$('#form').hidden=false;if(!img)$('#th').hidden=true;upd();$('#form').scrollIntoView({behavior:'smooth'})}
+let editId=null,editCreated=null;
+function show(t,img,id=null){editId=id;editCreated=t.createdAt;fill(t);const n=id==null;$('#ft').textContent=n?'Sprawdź odczytane dane':'Szczegóły przejazdu';$('#cancel').textContent=n?'Anuluj':'Zamknij';$('#save').textContent=n?'Zapisz przejazd':'Zapisz zmiany';$('#form').hidden=false;if(!img)$('#th').hidden=true;upd();$('#form').scrollIntoView({behavior:'smooth'})}
 $('#form').oninput=upd;
 $('#manual').onclick=()=>show({date:today()});
-$('#cancel').onclick=()=>{$('#form').hidden=true};
+$('#cancel').onclick=()=>{$('#form').hidden=true;editId=null};
 $('#file').onchange=async e=>{
  const f=e.target.files[0];e.target.value='';if(!f)return;
  try{
@@ -152,8 +153,9 @@ $('#file').onchange=async e=>{
 $('#save').onclick=async()=>{
  const t=rd();
  if(!t.date||t.dist==null||t.cons==null)return alert('Uzupełnij co najmniej datę, dystans i zużycie paliwa.');
- if((await all()).some(x=>key(x)===key(t))&&!confirm('Taki przejazd jest już zapisany. Dodać mimo to?'))return;
- t.createdAt=Date.now();await add(t);$('#form').hidden=true;st('');render();
+ if(editId==null&&(await all()).some(x=>key(x)===key(t))&&!confirm('Taki przejazd jest już zapisany. Dodać mimo to?'))return;
+ if(editId!=null){t.id=editId;t.createdAt=editCreated;await put(t)}else{t.createdAt=Date.now();await add(t)}
+ editId=null;$('#form').hidden=true;st('');render();
 };
 
 /* archiwum */
@@ -166,9 +168,13 @@ async function render(){
  $('#sum').innerHTML=S.length?`<div class="mute">Średnie realne spalanie na spalinie</div><div class="big">${nf(iD?iF/iD*100:null)} <small>l/100 km</small></div><div style="height:12px"></div>`+
   kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+kv('Średnie zużycie z MyToyota',nf(dist?fuel/dist*100:null)+' l/100 km')+kv('Udział EV w dystansie',nf(dist?sm(x=>x.t.evDist)/dist*100:null,0)+'%')
   :'<p class="mute">Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.</p>';
- $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><div><div class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na spalinie</small></div><div>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</div><div class="mute">${nf(t.dist)} km w ${nf(t.dur,0)} min, w EV ${nf(t.evDist)} km, łącznie ${nf(t.cons)} l/100 km</div></div><button class="btn x" data-id="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
+ $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na spalinie</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span><span class="mute">${nf(t.dist)} km w ${nf(t.dur,0)} min, w EV ${nf(t.evDist)} km, łącznie ${nf(t.cons)} l/100 km</span><span class="mute">Śr. prędkość: EV ${nf(r.evSpeed,0)} km/h, spalina ${nf(r.iceSpeed,0)} km/h</span></button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
 }
-$('#list').onclick=async e=>{const id=e.target.dataset.id;if(id&&confirm('Usunąć ten przejazd?')){await del(+id);render()}};
+$('#list').onclick=async e=>{
+ const d=e.target.closest('[data-del]'),o=e.target.closest('[data-open]');
+ if(d){if(confirm('Usunąć ten przejazd?')){const id=+d.dataset.del;await del(id);if(editId===id){editId=null;$('#form').hidden=true}render()}}
+ else if(o){const t=(await all()).find(x=>x.id===+o.dataset.open);if(t)show(t,false,t.id)}
+};
 
 /* kopia zapasowa */
 const dl=(name,data,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
