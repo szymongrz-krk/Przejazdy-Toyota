@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pl"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#d4101f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>Dziennik przejazdów</title>
+<style>
+:root{color-scheme:light dark;--bg:#e9edf0;--card:#fff;--ink:#101c26;--mute:#5b6b78;--line:#d5dce2;--acc:#d4101f;--ev:#0b8a7a;--on:#fff;--warn:#7a4300;--wbg:#fff0d0}
+@media(prefers-color-scheme:dark){:root{--bg:#0d141a;--card:#16202a;--ink:#eaf0f4;--mute:#8fa1af;--line:#25323d;--acc:#ff5a66;--ev:#3ccfb9;--on:#0d141a;--warn:#f6c26b;--wbg:#3a2d12}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:28px;margin:8px 0 2px;letter-spacing:-.02em}
+h2{font-size:17px;margin:0 0 12px}
+.sub,.mute{color:var(--mute);font-size:14px}.sub{margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 18px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-weight:600;font-size:16px;font-family:inherit;cursor:pointer;text-align:center}
+.btn:focus-visible,input:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
+.btn.p{background:var(--acc);color:var(--on);border-color:var(--acc)}
+.row{display:flex;gap:10px}.row .btn{flex:1}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.f{display:block;font-size:13px;color:var(--mute)}
+input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:16px;font-family:inherit}
+.big{font-size:52px;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1;color:var(--acc)}
+.big small{font-size:16px;font-weight:500;color:var(--mute);letter-spacing:0}
+.bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--acc);margin:14px 0 6px}
+.bar i{background:var(--ev)}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:15px}
+.kv b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.warn{background:var(--wbg);color:var(--warn);border-radius:12px;padding:10px 12px;margin-top:12px;font-size:14px}
+.trip{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.trip:first-child{border-top:0;padding-top:0}.trip>div{flex:1}
+.trip .n{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--acc);font-variant-numeric:tabular-nums}
+.x{width:44px;min-height:44px;padding:0;color:var(--mute);flex:none}
+#th{width:56px;border-radius:8px;border:1px solid var(--line)}
+[hidden]{display:none!important}
+</style></head>
+<body><main>
+<h1>Dziennik przejazdów</h1>
+<p class="sub">Dane z MyToyota. Wszystko zostaje na tym telefonie.</p>
+
+<section class="card">
+ <div class="row">
+  <label class="btn p" for="file">Wczytaj zrzut ekranu</label>
+  <button class="btn" id="manual">Wpisz ręcznie</button>
+ </div>
+ <input id="file" type="file" accept="image/*" hidden>
+ <p class="mute" id="st" hidden></p>
+</section>
+
+<section class="card" id="form" hidden>
+ <div class="row" style="align-items:center"><h2 style="margin:0;flex:1">Sprawdź odczytane dane</h2><img id="th" alt="" hidden></div>
+ <div class="grid" id="fields" style="margin-top:12px"></div>
+ <div id="warns"></div>
+ <div id="calc" style="margin-top:16px"></div>
+ <div class="row" style="margin-top:14px"><button class="btn" id="cancel">Anuluj</button><button class="btn p" id="save">Zapisz przejazd</button></div>
+</section>
+
+<section class="card"><h2>Podsumowanie archiwum</h2><div id="sum"></div></section>
+<section class="card"><h2>Historia przejazdów</h2><div id="list"></div></section>
+<section class="card"><h2>Kopia zapasowa</h2>
+ <div class="row"><button class="btn" id="eJ">Eksport JSON</button><button class="btn" id="eC">Eksport CSV</button></div>
+ <div class="row" style="margin-top:10px"><label class="btn" for="imp">Import JSON</label></div>
+ <input id="imp" type="file" accept=".json,application/json" hidden>
+ <p class="mute">Dane leżą w pamięci przeglądarki i znikną, jeśli wyczyścisz dane Chrome. Zrób kopię JSON od czasu do czasu.</p>
+</section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" defer></script>
+<script>
+const $=s=>document.querySelector(s);
+const FD=[['date','Data','date'],['dur','Czas jazdy (min)'],['dist','Dystans (km)'],['speed','Śr. prędkość (km/h)'],['cons','Zużycie (l/100 km)'],['evPct','Użycie EV (%)'],['evMin','Czas w EV (min)'],['evDist','Dystans w EV (km)']];
+$('#fields').innerHTML=FD.map(([k,l,t])=>`<label class="f"${k==='date'?' style="grid-column:span 2"':''}>${l}<input id="f_${k}" ${t?`type="${t}"`:'inputmode="decimal"'}></label>`).join('');
+const nf=(v,d=1)=>v==null||!isFinite(v)?'—':v.toLocaleString('pl-PL',{minimumFractionDigits:d,maximumFractionDigits:d});
+const num=v=>{const n=parseFloat(String(v??'').replace(',','.'));return isFinite(n)?n:null};
+const kv=(a,b)=>`<div class="kv"><span>${a}</span><b>${b}</b></div>`;
+const today=()=>new Date().toLocaleDateString('sv-SE');
+
+/* baza danych (IndexedDB) */
+const DB=new Promise((res,rej)=>{const q=indexedDB.open('przejazdy',1);q.onupgradeneeded=()=>q.result.createObjectStore('trips',{keyPath:'id',autoIncrement:true});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
+const tx=async(mode,fn)=>{const db=await DB;return new Promise((res,rej)=>{const t=db.transaction('trips',mode),o=fn(t.objectStore('trips'));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
+const all=()=>tx('readonly',s=>s.getAll()),add=t=>tx('readwrite',s=>s.add(t)),del=id=>tx('readwrite',s=>s.delete(id));
+const key=t=>[t.date,t.dist,t.dur,t.cons].join('|');
+
+/* wyliczenia: spalanie realne = paliwo z całego przejazdu / dystans poza trybem EV */
+function calc(t){
+ const r={};
+ if(t.dist!=null&&t.cons!=null)r.fuel=t.cons*t.dist/100;
+ if(t.dist!=null&&t.evDist!=null)r.iceDist=Math.max(0,t.dist-t.evDist);
+ if(t.dur!=null&&t.evMin!=null)r.iceMin=Math.max(0,t.dur-t.evMin);
+ r.iceCons=r.fuel!=null&&r.iceDist>0.05?r.fuel/r.iceDist*100:null;
+ r.evShare=t.dist>0&&t.evDist!=null?t.evDist/t.dist*100:null;
+ r.evSpeed=t.evMin>0&&t.evDist!=null?t.evDist/(t.evMin/60):null;
+ r.iceSpeed=r.iceMin>0&&r.iceDist!=null?r.iceDist/(r.iceMin/60):null;
+ return r;
+}
+function checks(t,r){
+ const w=[];
+ if(r.evShare!=null&&t.evPct!=null&&Math.abs(r.evShare-t.evPct)>4)w.push(`Dystans EV do całkowitego daje ${nf(r.evShare,0)}%, a w zrzucie jest ${nf(t.evPct,0)}%. Sprawdź kilometry.`);
+ if(t.dist&&t.dur&&t.speed&&Math.abs(t.dist/(t.dur/60)-t.speed)/t.speed>.15)w.push('Dystans, czas i średnia prędkość do siebie nie pasują. Sprawdź je.');
+ if(t.evDist!=null&&t.dist!=null&&t.evDist>t.dist+.05)w.push('Dystans w trybie EV jest większy niż cały dystans.');
+ if(t.evMin!=null&&t.dur!=null&&t.evMin>t.dur)w.push('Czas w trybie EV jest dłuższy niż czas jazdy.');
+ return w;
+}
+
+/* odczyt tekstu ze zrzutu */
+const MON={sty:1,lut:2,mar:3,kwi:4,maj:5,cze:6,lip:7,sie:8,wrz:9,paz:10,lis:11,gru:12};
+const first=s=>num(s.match(/\d+(?:[.,]\d+)?/)?.[0]);
+const dur=s=>{const h=s.match(/(\d+)\s*(?:h|godz)/),m=s.match(/(\d+)\s*m/);return h||m?(h?+h[1]*60:0)+(m?+m[1]:0):first(s)};
+function parse(raw){
+ const text=raw.toLowerCase().replace(/ł/g,'l').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+ const L=text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+ const get=(re,fn)=>{for(let i=0;i<L.length;i++){const m=L[i].match(re);if(m){const a=L[i].slice(m.index+m[0].length),s=/\d/.test(a)?a:/\d/.test(L[i+1]||'')?L[i+1]:null;if(s)return fn(s)}}return null};
+ const d=text.match(/(\d{1,2})\s+(sty|lut|mar|kwi|maj|cze|lip|sie|wrz|paz|lis|gru)\w*\.?\s+(20\d\d)/);
+ return{
+  date:d?`${d[3]}-${String(MON[d[2]]).padStart(2,'0')}-${d[1].padStart(2,'0')}`:today(),
+  dur:get(/czas\s+jazdy/,dur),dist:get(/przejechany\s+dystans/,first),speed:get(/srednia\s+predkosc/,first),
+  cons:get(/zuzycie\s+paliwa/,first),evPct:get(/uzycie\s+trybu/,first),
+  evMin:get(/czas\s+przejechany\s+w\s+trybie/,dur),evDist:get(/dystans\s+przejechany\s+w\s+trybie/,first)
+ };
+}
+const st=m=>{const e=$('#st');e.hidden=!m;e.textContent=m||''};
+async function ocr(file){
+ if(!window.Tesseract)throw Error('Brak silnika OCR. Połącz się z internetem przy pierwszym użyciu albo wpisz dane ręcznie.');
+ const w=await Tesseract.createWorker('pol',1,{logger:m=>st(m.status==='recognizing text'?`Rozpoznaję tekst… ${Math.round(m.progress*100)}%`:'Przygotowuję rozpoznawanie. Za pierwszym razem to chwilę trwa.')});
+ try{return(await w.recognize(file)).data.text}finally{await w.terminate()}
+}
+
+/* formularz */
+const rd=()=>{const t={date:$('#f_date').value};FD.slice(1).forEach(([k])=>t[k]=num($('#f_'+k).value));return t};
+const fill=t=>FD.forEach(([k])=>{const v=t[k];$('#f_'+k).value=v==null?'':k==='date'?v:String(v).replace('.',',')});
+function upd(){
+ const t=rd(),r=calc(t),e=r.evShare==null?0:Math.min(100,r.evShare);
+ $('#warns').innerHTML=checks(t,r).map(w=>`<div class="warn">${w}</div>`).join('');
+ $('#calc').innerHTML=`<div class="mute">Realne spalanie na silniku spalinowym</div><div class="big">${nf(r.iceCons)} <small>l/100 km</small></div><div class="bar"><i style="width:${e}%"></i></div><div class="mute" style="margin-bottom:6px">Udział trybu EV w dystansie: ${nf(r.evShare,0)}%</div>`+
+  kv('Spalone paliwo w całym przejeździe',nf(r.fuel,2)+' l')+kv('Dystans na silniku spalinowym',nf(r.iceDist)+' km')+kv('Czas na silniku spalinowym',nf(r.iceMin,0)+' min')+kv('Śr. prędkość w trybie EV',nf(r.evSpeed,0)+' km/h')+kv('Śr. prędkość na spalinie',nf(r.iceSpeed,0)+' km/h');
+}
+function show(t,img){fill(t);$('#form').hidden=false;if(!img)$('#th').hidden=true;upd();$('#form').scrollIntoView({behavior:'smooth'})}
+$('#form').oninput=upd;
+$('#manual').onclick=()=>show({date:today()});
+$('#cancel').onclick=()=>{$('#form').hidden=true};
+$('#file').onchange=async e=>{
+ const f=e.target.files[0];e.target.value='';if(!f)return;
+ try{
+  const t=parse(await ocr(f));
+  $('#th').src=URL.createObjectURL(f);$('#th').hidden=false;
+  show(t,true);
+  st(FD.slice(1).filter(([k])=>t[k]==null).length>=5?'Nie rozpoznano większości pól. Uzupełnij je ręcznie.':'');
+ }catch(err){st(err.message)}
+};
+$('#save').onclick=async()=>{
+ const t=rd();
+ if(!t.date||t.dist==null||t.cons==null)return alert('Uzupełnij co najmniej datę, dystans i zużycie paliwa.');
+ if((await all()).some(x=>key(x)===key(t))&&!confirm('Taki przejazd jest już zapisany. Dodać mimo to?'))return;
+ t.createdAt=Date.now();await add(t);$('#form').hidden=true;st('');render();
+};
+
+/* archiwum */
+async function render(){
+ let L=[];
+ try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
+ const S=L.map(t=>({t,r:calc(t)})),sm=f=>S.reduce((a,x)=>a+(f(x)||0),0);
+ const fuel=sm(x=>x.r.fuel),dist=sm(x=>x.t.dist),ok=S.filter(x=>x.r.iceCons!=null);
+ const iF=ok.reduce((a,x)=>a+x.r.fuel,0),iD=ok.reduce((a,x)=>a+x.r.iceDist,0);
+ $('#sum').innerHTML=S.length?`<div class="mute">Średnie realne spalanie na spalinie</div><div class="big">${nf(iD?iF/iD*100:null)} <small>l/100 km</small></div><div style="height:12px"></div>`+
+  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+kv('Średnie zużycie z MyToyota',nf(dist?fuel/dist*100:null)+' l/100 km')+kv('Udział EV w dystansie',nf(dist?sm(x=>x.t.evDist)/dist*100:null,0)+'%')
+  :'<p class="mute">Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.</p>';
+ $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><div><div class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na spalinie</small></div><div>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</div><div class="mute">${nf(t.dist)} km w ${nf(t.dur,0)} min, w EV ${nf(t.evDist)} km, łącznie ${nf(t.cons)} l/100 km</div></div><button class="btn x" data-id="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
+}
+$('#list').onclick=async e=>{const id=e.target.dataset.id;if(id&&confirm('Usunąć ten przejazd?')){await del(+id);render()}};
+
+/* kopia zapasowa */
+const dl=(name,data,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
+$('#eJ').onclick=async()=>dl(`przejazdy-${today()}.json`,JSON.stringify({app:'przejazdy',version:1,trips:(await all()).map(({id,...t})=>t)},null,1),'application/json');
+$('#eC').onclick=async()=>{
+ const H=['Data','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]'];
+ const c=v=>v==null?'':typeof v==='number'?String(Math.round(v*1000)/1000).replace('.',','):v;
+ const rows=(await all()).sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{const r=calc(t);return[t.date,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons].map(c).join(';')});
+ dl(`przejazdy-${today()}.csv`,'\ufeff'+[H.join(';'),...rows].join('\r\n'),'text/csv');
+};
+$('#imp').onchange=async e=>{
+ const f=e.target.files[0];e.target.value='';if(!f)return;
+ try{
+  const j=JSON.parse(await f.text()),ex=new Set((await all()).map(key));let n=0;
+  for(const x of j.trips||[]){
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(x.date))continue;
+   const t={date:x.date,createdAt:Date.now()};FD.slice(1).forEach(([k])=>t[k]=num(x[k]));
+   if(ex.has(key(t)))continue;ex.add(key(t));await add(t);n++;
+  }
+  alert(`Zaimportowano przejazdów: ${n}`);render();
+ }catch{alert('Nie udało się odczytać pliku.')}
+};
+
+render();
+navigator.storage?.persist?.();
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
+</script>
+</body></html>
