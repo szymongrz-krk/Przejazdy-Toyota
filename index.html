@@ -32,6 +32,9 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 .warn{background:var(--wbg);color:var(--warn);border-radius:12px;padding:10px 12px;margin-top:12px;font-size:14px}
 .trip{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
 .trip:first-child{border-top:0;padding-top:0}.open{flex:1;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}.open span{display:block}
+.y{background:#ffd23f;color:#1a1a18;border-radius:5px;padding:1px 5px;font-weight:600;white-space:nowrap}
+.open .g{display:grid;grid-template-columns:auto auto auto auto;justify-content:start;column-gap:12px;row-gap:2px;margin-top:4px;font-variant-numeric:tabular-nums}
+.g em{font-style:normal;text-align:right;white-space:nowrap}.g .l{text-align:left;font-weight:700}.g .ev{color:var(--ev)}.g .ice{color:var(--acc)}
 .trip .n{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--acc);font-variant-numeric:tabular-nums}
 .x{width:44px;min-height:44px;padding:0;color:var(--mute);flex:none}
 #th{width:56px;border-radius:8px;border:1px solid var(--line)}
@@ -173,7 +176,7 @@ async function render(){
  $('#sum').innerHTML=S.length?`<div class="mute">Średnie realne spalanie na spalinie</div><div class="big">${nf(iD?iF/iD*100:null)} <small>l/100 km</small></div>${pb(share('evDist','dist'),'Udział trybu EV w dystansie (łącznie)',16)}${pb(share('evMin','dur'),'Udział trybu EV w czasie jazdy (łącznie)',12)}<div style="height:6px"></div>`+
   kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+kv('Średnie zużycie z MyToyota',nf(dist?fuel/dist*100:null)+' l/100 km')
   :'<p class="mute">Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.</p>';
- $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na spalinie</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute">${nf(t.dist)} km w ${nf(t.dur,0)} min, łącznie ${nf(t.cons)} l/100 km</span><span class="mute">EV: ${nf(t.evDist)} km, ${nf(t.evMin,0)} min, ${nf(r.evSpeed,0)} km/h</span><span class="mute">Spalina: ${nf(r.iceDist)} km, ${nf(r.iceMin,0)} min, ${nf(r.iceSpeed,0)} km/h</span></button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
+ $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span><span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span></button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
 }
 $('#list').onclick=async e=>{
  const d=e.target.closest('[data-del]'),o=e.target.closest('[data-open]');
