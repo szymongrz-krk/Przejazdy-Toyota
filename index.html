@@ -166,10 +166,12 @@ async function render(){
  let L=[];
  try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
  const S=L.map(t=>({t,r:calc(t)})),sm=f=>S.reduce((a,x)=>a+(f(x)||0),0);
+ const share=(a,b)=>{const z=S.filter(x=>x.t[b]>0&&x.t[a]!=null),d=z.reduce((s,x)=>s+x.t[b],0);return d?z.reduce((s,x)=>s+x.t[a],0)/d*100:null};
+ const pb=(v,l,m)=>`<div class="bar" style="margin-top:${m}px"><i style="width:${v==null?0:Math.min(100,v)}%"></i></div><div class="mute">${l}: ${nf(v,0)}%</div>`;
  const fuel=sm(x=>x.r.fuel),dist=sm(x=>x.t.dist),ok=S.filter(x=>x.r.iceCons!=null);
  const iF=ok.reduce((a,x)=>a+x.r.fuel,0),iD=ok.reduce((a,x)=>a+x.r.iceDist,0);
- $('#sum').innerHTML=S.length?`<div class="mute">Średnie realne spalanie na spalinie</div><div class="big">${nf(iD?iF/iD*100:null)} <small>l/100 km</small></div><div style="height:12px"></div>`+
-  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+kv('Średnie zużycie z MyToyota',nf(dist?fuel/dist*100:null)+' l/100 km')+kv('Udział EV w dystansie',nf(dist?sm(x=>x.t.evDist)/dist*100:null,0)+'%')
+ $('#sum').innerHTML=S.length?`<div class="mute">Średnie realne spalanie na spalinie</div><div class="big">${nf(iD?iF/iD*100:null)} <small>l/100 km</small></div>${pb(share('evDist','dist'),'Udział trybu EV w dystansie (łącznie)',16)}${pb(share('evMin','dur'),'Udział trybu EV w czasie jazdy (łącznie)',12)}<div style="height:6px"></div>`+
+  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+kv('Średnie zużycie z MyToyota',nf(dist?fuel/dist*100:null)+' l/100 km')
   :'<p class="mute">Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.</p>';
  $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na spalinie</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute">${nf(t.dist)} km w ${nf(t.dur,0)} min, łącznie ${nf(t.cons)} l/100 km</span><span class="mute">EV: ${nf(t.evDist)} km, ${nf(t.evMin,0)} min, ${nf(r.evSpeed,0)} km/h</span><span class="mute">Spalina: ${nf(r.iceDist)} km, ${nf(r.iceMin,0)} min, ${nf(r.iceSpeed,0)} km/h</span></button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
 }
