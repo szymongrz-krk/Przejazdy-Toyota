@@ -68,7 +68,7 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 <section class="card"><h2>Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Kopia zapasowa</h2>
  <div class="row"><button class="btn" id="eJ">Eksport JSON</button><button class="btn" id="eC">Eksport CSV</button></div>
- <div class="row" style="margin-top:10px"><label class="btn" for="imp">Import JSON</label></div>
+ <div class="row" style="margin-top:10px"><button class="btn" id="eX">Eksport XLSX</button><label class="btn" for="imp">Import JSON</label></div>
  <input id="imp" type="file" accept=".json,application/json" hidden>
  <p class="mute">Dane leżą w pamięci przeglądarki i znikną, jeśli wyczyścisz dane Chrome. Zrób kopię JSON od czasu do czasu.</p>
 </section>
@@ -188,13 +188,49 @@ $('#list').onclick=async e=>{
 
 /* kopia zapasowa */
 const dl=(name,data,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
-$('#eJ').onclick=async()=>dl(`przejazdy-${today()}.json`,JSON.stringify({app:'przejazdy',version:1,trips:(await all()).map(({id,...t})=>t)},null,1),'application/json');
+$('#eJ').onclick=async()=>dl(`przejazdy-${stamp()}.json`,JSON.stringify({app:'przejazdy',version:1,trips:(await all()).map(({id,...t})=>t)},null,1),'application/json');
+const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())};
+const HEAD=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Trasa / komentarz'];
+const table=async()=>(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons,String(t.note||'').replace(/\s+/g,' ')].map(v=>typeof v==='number'?Math.round(v*1000)/1000:v)});
 $('#eC').onclick=async()=>{
- const H=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Trasa / komentarz'];
- const c=v=>v==null?'':typeof v==='number'?String(Math.round(v*1000)/1000).replace('.',','):v;
- const rows=(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons].map(c).join(';')+';"'+String(t.note||'').replace(/\s+/g,' ').replace(/"/g,'""')+'"'});
- dl(`przejazdy-${today()}.csv`,'\ufeff'+[H.join(';'),...rows].join('\r\n'),'text/csv');
+ const q=v=>v==null?'':typeof v==='number'?String(v).replace('.',','):/[;"]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+ const rows=(await table()).map(r=>r.map(q).join(';'));
+ dl(`przejazdy-${stamp()}.csv`,'\ufeff'+[HEAD.join(';'),...rows].join('\r\n'),'text/csv;charset=utf-8');
 };
+/*XLSX-START*/
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=b=>{let c=-1;for(let i=0;i<b.length;i++)c=crcT[(c^b[i])&255]^(c>>>8);return(~c)>>>0};
+function zip(files){
+ const E=new TextEncoder(),parts=[],cen=[],u16=n=>[n&255,n>>8&255],u32=n=>[n&255,n>>8&255,n>>16&255,n>>>24&255];
+ let off=0;
+ for(const[name,txt]of files){
+  const nm=E.encode(name),d=E.encode(txt),crc=crc32(d);
+  const lh=new Uint8Array([0x50,0x4b,3,4,...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(d.length),...u32(d.length),...u16(nm.length),...u16(0)]);
+  parts.push(lh,nm,d);
+  cen.push(new Uint8Array([0x50,0x4b,1,2,...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(d.length),...u32(d.length),...u16(nm.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(off)]),nm);
+  off+=lh.length+nm.length+d.length;
+ }
+ const cs=cen.reduce((a,x)=>a+x.length,0);
+ return new Blob([...parts,...cen,new Uint8Array([0x50,0x4b,5,6,0,0,0,0,...u16(files.length),...u16(files.length),...u32(cs),...u32(off),0,0])],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const xe=s=>String(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function xlsx(H,rows){
+ const L=i=>String.fromCharCode(65+i),X='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+ const cell=(v,i,r,s)=>v==null||v===''?'':typeof v==='number'?`<c r="${L(i)}${r}"><v>${v}</v></c>`:`<c r="${L(i)}${r}" t="inlineStr"${s?' s="1"':''}><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+ const line=(a,r,s)=>`<row r="${r}">${a.map((v,i)=>cell(v,i,r,s)).join('')}</row>`;
+ const sheet=X+`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="13" width="18" customWidth="1"/><col min="14" max="14" width="40" customWidth="1"/></cols><sheetData>${line(H,1,1)}${rows.map((a,i)=>line(a,i+2)).join('')}</sheetData></worksheet>`;
+ const R='http://schemas.openxmlformats.org/officeDocument/2006/relationships',O='application/vnd.openxmlformats-officedocument.spreadsheetml.';
+ return zip([
+  ['[Content_Types].xml',X+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${O}sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${O}worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="${O}styles+xml"/></Types>`],
+  ['_rels/.rels',X+`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+  ['xl/workbook.xml',X+`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${R}"><sheets><sheet name="Przejazdy" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+  ['xl/_rels/workbook.xml.rels',X+`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${R}/styles" Target="styles.xml"/></Relationships>`],
+  ['xl/styles.xml',X+'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+  ['xl/worksheets/sheet1.xml',sheet]
+ ]);
+}
+/*XLSX-END*/
+$('#eX').onclick=async()=>dl(`przejazdy-${stamp()}.xlsx`,xlsx(HEAD,await table()),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 $('#imp').onchange=async e=>{
  const f=e.target.files[0];e.target.value='';if(!f)return;
  try{
