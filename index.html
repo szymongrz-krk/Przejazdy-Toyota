@@ -75,7 +75,7 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 <script>
 const $=s=>document.querySelector(s);
 const FD=[['date','Data','date'],['dur','Czas jazdy (min)'],['dist','Dystans (km)'],['speed','Śr. prędkość (km/h)'],['cons','Zużycie (l/100 km)'],['evPct','Użycie EV (%)'],['evMin','Czas w EV (min)'],['evDist','Dystans w EV (km)']];
-$('#fields').innerHTML=FD.map(([k,l,t])=>`<label class="f"${k==='date'?' style="grid-column:span 2"':''}>${l}<input id="f_${k}" ${t?`type="${t}"`:'inputmode="decimal"'}></label>`).join('');
+$('#fields').innerHTML=FD.map(([k,l,t])=>`<label class="f">${l}<input id="f_${k}" ${t?`type="${t}"`:'inputmode="decimal"'}></label>`).join('').replace('</label>','</label><label class="f">Godzina<input id="f_time" type="time"></label>');
 const nf=(v,d=1)=>v==null||!isFinite(v)?'—':v.toLocaleString('pl-PL',{minimumFractionDigits:d,maximumFractionDigits:d});
 const num=v=>{const n=parseFloat(String(v??'').replace(',','.'));return isFinite(n)?n:null};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -134,8 +134,8 @@ async function ocr(file){
 }
 
 /* formularz */
-const rd=()=>{const t={date:$('#f_date').value,note:$('#f_note').value.trim()};FD.slice(1).forEach(([k])=>t[k]=num($('#f_'+k).value));return t};
-const fill=t=>{$('#f_note').value=t.note||'';FD.forEach(([k])=>{const v=t[k];$('#f_'+k).value=v==null?'':k==='date'?v:String(v).replace('.',',')})};
+const rd=()=>{const t={date:$('#f_date').value,time:$('#f_time').value,note:$('#f_note').value.trim()};FD.slice(1).forEach(([k])=>t[k]=num($('#f_'+k).value));return t};
+const fill=t=>{$('#f_note').value=t.note||'';$('#f_time').value=t.time||'';FD.forEach(([k])=>{const v=t[k];$('#f_'+k).value=v==null?'':k==='date'?v:String(v).replace('.',',')})};
 function upd(){
  const t=rd(),r=calc(t),e=r.evShare==null?0:Math.min(100,r.evShare),e2=r.evTime==null?0:Math.min(100,r.evTime);
  $('#warns').innerHTML=checks(t,r).map(w=>`<div class="warn">${w}</div>`).join('');
@@ -167,7 +167,7 @@ $('#save').onclick=async()=>{
 /* archiwum */
 async function render(){
  let L=[];
- try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
+ try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
  const S=L.map(t=>({t,r:calc(t)})),sm=f=>S.reduce((a,x)=>a+(f(x)||0),0);
  const share=(a,b)=>{const z=S.filter(x=>x.t[b]>0&&x.t[a]!=null),d=z.reduce((s,x)=>s+x.t[b],0);return d?z.reduce((s,x)=>s+x.t[a],0)/d*100:null};
  const pb=(v,l,m)=>`<div class="bar" style="margin-top:${m}px"><i style="width:${v==null?0:Math.min(100,v)}%"></i></div><div class="mute">${l}: ${nf(v,0)}%</div>`;
@@ -176,7 +176,7 @@ async function render(){
  $('#sum').innerHTML=S.length?`<div class="mute">Średnie realne spalanie na spalinie</div><div class="big">${nf(iD?iF/iD*100:null)} <small>l/100 km</small></div>${pb(share('evDist','dist'),'Udział trybu EV w dystansie (łącznie)',16)}${pb(share('evMin','dur'),'Udział trybu EV w czasie jazdy (łącznie)',12)}<div style="height:6px"></div>`+
   kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+kv('Średnie zużycie z MyToyota',nf(dist?fuel/dist*100:null)+' l/100 km')
   :'<p class="mute">Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.</p>';
- $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span><span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span></button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
+ $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span><span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span></button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
 }
 $('#list').onclick=async e=>{
  const d=e.target.closest('[data-del]'),o=e.target.closest('[data-open]');
@@ -188,9 +188,9 @@ $('#list').onclick=async e=>{
 const dl=(name,data,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
 $('#eJ').onclick=async()=>dl(`przejazdy-${today()}.json`,JSON.stringify({app:'przejazdy',version:1,trips:(await all()).map(({id,...t})=>t)},null,1),'application/json');
 $('#eC').onclick=async()=>{
- const H=['Data','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Trasa / komentarz'];
+ const H=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Trasa / komentarz'];
  const c=v=>v==null?'':typeof v==='number'?String(Math.round(v*1000)/1000).replace('.',','):v;
- const rows=(await all()).sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{const r=calc(t);return[t.date,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons].map(c).join(';')+';"'+String(t.note||'').replace(/\s+/g,' ').replace(/"/g,'""')+'"'});
+ const rows=(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons].map(c).join(';')+';"'+String(t.note||'').replace(/\s+/g,' ').replace(/"/g,'""')+'"'});
  dl(`przejazdy-${today()}.csv`,'\ufeff'+[H.join(';'),...rows].join('\r\n'),'text/csv');
 };
 $('#imp').onchange=async e=>{
@@ -199,7 +199,7 @@ $('#imp').onchange=async e=>{
   const j=JSON.parse(await f.text()),ex=new Set((await all()).map(key));let n=0;
   for(const x of j.trips||[]){
    if(!/^\d{4}-\d{2}-\d{2}$/.test(x.date))continue;
-   const t={date:x.date,note:String(x.note||'').slice(0,300),createdAt:Date.now()};FD.slice(1).forEach(([k])=>t[k]=num(x[k]));
+   const t={date:x.date,time:/^\d{2}:\d{2}$/.test(x.time)?x.time:'',note:String(x.note||'').slice(0,300),createdAt:Date.now()};FD.slice(1).forEach(([k])=>t[k]=num(x[k]));
    if(ex.has(key(t)))continue;ex.add(key(t));await add(t);n++;
   }
   alert(`Zaimportowano przejazdów: ${n}`);render();
