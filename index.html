@@ -75,6 +75,16 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
  <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button></div>
  <div id="sum"></div></section>
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
+<section class="card"><h2>Tankowania</h2>
+ <p class="mute" style="margin:-6px 0 10px">Przejazd dostaje cenę paliwa z ostatniego tankowania przed nim.</p>
+ <div id="flist"></div>
+ <div class="row" style="margin-top:10px"><button class="btn" id="fAdd">Dodaj tankowanie</button><label class="btn" for="impF">Import z Fuelio</label></div>
+ <input id="impF" type="file" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel" hidden>
+ <div id="fform" hidden style="margin-top:12px">
+  <div class="grid"><label class="f">Data<input id="g_date" type="date"></label><label class="f">Godzina<input id="g_time" type="time"></label><label class="f">Cena za litr (zł)<input id="g_price" inputmode="decimal"></label><label class="f">Litry (opcjonalnie)<input id="g_l" inputmode="decimal"></label></div>
+  <div class="row" style="margin-top:12px"><button class="btn" id="gCancel">Anuluj</button><button class="btn p" id="gSave">Zapisz tankowanie</button></div>
+ </div>
+</section>
 <section class="card"><h2>Kopia zapasowa</h2>
  <div class="row"><button class="btn" id="eJ">Eksport JSON</button><button class="btn" id="eC">Eksport CSV</button></div>
  <div class="row" style="margin-top:10px"><button class="btn" id="eX">Eksport XLSX</button><label class="btn" for="imp">Import JSON</label></div>
@@ -94,9 +104,11 @@ const kv=(a,b)=>`<div class="kv"><span>${a}</span><b>${b}</b></div>`;
 const today=()=>new Date().toLocaleDateString('sv-SE');
 
 /* baza danych (IndexedDB) */
-const DB=new Promise((res,rej)=>{const q=indexedDB.open('przejazdy',1);q.onupgradeneeded=()=>q.result.createObjectStore('trips',{keyPath:'id',autoIncrement:true});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
-const tx=async(mode,fn)=>{const db=await DB;return new Promise((res,rej)=>{const t=db.transaction('trips',mode),o=fn(t.objectStore('trips'));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
+const DB=new Promise((res,rej)=>{const q=indexedDB.open('przejazdy',2);q.onupgradeneeded=()=>{const d=q.result;for(const n of['trips','fuel'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id',autoIncrement:true})};q.onblocked=()=>alert('Zamknij inne okna tej aplikacji i otwórz ją ponownie.');q.onsuccess=()=>{q.result.onversionchange=()=>q.result.close();res(q.result)};q.onerror=()=>rej(q.error)});
+const tx=async(mode,fn,st='trips')=>{const db=await DB;return new Promise((res,rej)=>{const t=db.transaction(st,mode),o=fn(t.objectStore(st));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
 const all=()=>tx('readonly',s=>s.getAll()),add=t=>tx('readwrite',s=>s.add(t)),put=t=>tx('readwrite',s=>s.put(t)),del=id=>tx('readwrite',s=>s.delete(id));
+const allF=()=>tx('readonly',s=>s.getAll(),'fuel'),addF=f=>tx('readwrite',s=>s.add(f),'fuel'),delF=id=>tx('readwrite',s=>s.delete(id),'fuel');
+let FUEL=[];
 const key=t=>[t.date,t.dist,t.dur,t.cons].join('|');
 
 /* wyliczenia: spalanie realne = paliwo z całego przejazdu / dystans poza trybem EV */
@@ -148,10 +160,10 @@ async function ocr(file){
 const rd=()=>{const t={date:$('#f_date').value,time:$('#f_time').value,note:$('#f_note').value.trim()};FD.slice(1).forEach(([k])=>t[k]=num($('#f_'+k).value));return t};
 const fill=t=>{$('#f_note').value=t.note||'';$('#f_time').value=t.time||'';FD.forEach(([k])=>{const v=t[k];$('#f_'+k).value=v==null?'':k==='date'?v:String(v).replace('.',',')})};
 function upd(){
- const t=rd(),r=calc(t),e=r.evShare==null?0:Math.min(100,r.evShare),e2=r.evTime==null?0:Math.min(100,r.evTime);
+ const t=rd(),r=calc(t),pp=priceFor(t.date,t.time,FUEL),e=r.evShare==null?0:Math.min(100,r.evShare),e2=r.evTime==null?0:Math.min(100,r.evTime);
  $('#warns').innerHTML=checks(t,r).map(w=>`<div class="warn">${w}</div>`).join('');
  $('#calc').innerHTML=`<div class="mute">Realne spalanie na silniku spalinowym</div><div class="big">${nf(r.iceCons)} <small>l/100 km</small></div><div class="bar"><i style="width:${e}%"></i></div><div class="mute">Udział trybu EV w dystansie: ${nf(r.evShare,0)}%</div><div class="bar" style="margin-top:12px"><i style="width:${e2}%"></i></div><div class="mute" style="margin-bottom:6px">Udział trybu EV w czasie jazdy: ${nf(r.evTime,0)}%</div>`+
-  kv('Spalone paliwo w całym przejeździe',nf(r.fuel,2)+' l')+kv('Dystans na silniku spalinowym',nf(r.iceDist)+' km')+kv('Czas jazdy w trybie EV',nf(t.evMin,0)+' min')+kv('Czas na silniku spalinowym',nf(r.iceMin,0)+' min')+kv('Śr. prędkość w trybie EV',nf(r.evSpeed,0)+' km/h')+kv('Śr. prędkość na spalinie',nf(r.iceSpeed,0)+' km/h');
+  kv('Spalone paliwo w całym przejeździe',nf(r.fuel,2)+' l')+(pp?kv('Cena paliwa'+(pp.est?' (szac.)':''),nf(pp.price,2)+' zł/l')+kv('Koszt przejazdu',nf(r.fuel!=null?r.fuel*pp.price:null,2)+' zł')+kv('Koszt na 100 km',nf(t.cons!=null?t.cons*pp.price:null,2)+' zł'):'')+kv('Dystans na silniku spalinowym',nf(r.iceDist)+' km')+kv('Czas jazdy w trybie EV',nf(t.evMin,0)+' min')+kv('Czas na silniku spalinowym',nf(r.iceMin,0)+' min')+kv('Śr. prędkość w trybie EV',nf(r.evSpeed,0)+' km/h')+kv('Śr. prędkość na spalinie',nf(r.iceSpeed,0)+' km/h');
 }
 let editId=null,editCreated=null;
 function show(t,img,id=null){editId=id;editCreated=t.createdAt;fill(t);const n=id==null;$('#ft').textContent=n?'Sprawdź odczytane dane':'Szczegóły przejazdu';$('#cancel').textContent=n?'Anuluj':'Zamknij';$('#save').textContent=n?'Zapisz przejazd':'Zapisz zmiany';$('#form').hidden=false;if(!img)$('#th').hidden=true;upd();$('#form').scrollIntoView({behavior:'smooth'})}
@@ -177,6 +189,48 @@ $('#save').onclick=async()=>{
 };
 
 /* archiwum */
+/*FUEL-START*/
+const fk=f=>f.date+' '+(f.time||'00:00'),fkey=f=>[f.date,f.time||'',f.litres].join('|');
+const loadFuel=async()=>(await allF()).filter(f=>f.price>0).sort((a,b)=>fk(a).localeCompare(fk(b)));
+function priceFor(date,time,F){
+ if(!F.length)return null;
+ const k=date+' '+(time||'23:59');let b=null;
+ for(const f of F){if(fk(f)<=k)b=f;else break}
+ return b?{price:b.price,est:false,since:b.date}:{price:F[0].price,est:true,since:F[0].date};
+}
+function csvRows(text){
+ const rows=[];let row=[],f='',q=false;
+ for(let i=0;i<text.length;i++){
+  const c=text[i];
+  if(q){if(c==='"'){if(text[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c==='"')q=true;
+  else if(c===','){row.push(f);f=''}
+  else if(c==='\n'){row.push(f);rows.push(row);row=[];f=''}
+  else if(c!=='\r')f+=c;
+ }
+ if(f!==''||row.length){row.push(f);rows.push(row)}
+ return rows;
+}
+function fuelioParse(text){
+ const rows=csvRows(text.replace(/^\ufeff/,'')),i=rows.findIndex(r=>(r[0]||'').trim()==='## Log');
+ if(i<0)return null;
+ const H=(rows[i+1]||[]).map(h=>h.trim()),ix=n=>H.findIndex(h=>h===n||h.startsWith(n+' '));
+ const[cD,cL,cP,cV,cC,cO]=['Data','Fuel (litres)','Price','VolumePrice','City','Odo (km)'].map(ix);
+ const out=[];let sk=0;
+ for(let j=i+2;j<rows.length&&!(rows[j][0]||'').startsWith('## ');j++){
+  const r=rows[j];if(r.length<3)continue;
+  const m=(r[cD]||'').match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/),l=num(r[cL]),tot=num(r[cP]);
+  let pr=num(r[cV]);if(!(pr>0)&&l>0&&tot>0)pr=tot/l;
+  if(!m||!(pr>0)){sk++;continue}
+  out.push({date:m[1],time:m[2]||'',litres:l,total:tot,price:Math.round(pr*1000)/1000,place:(r[cC]||'').trim().slice(0,100),odo:num(r[cO])});
+ }
+ return{out,sk};
+}
+/*FUEL-END*/
+function renderFuel(){
+ const d=f=>new Date(f.date+'T12:00').toLocaleDateString('pl-PL',{day:'numeric',month:'short',year:'numeric'})+(f.time?', '+f.time:'');
+ $('#flist').innerHTML=FUEL.length?[...FUEL].reverse().map(f=>`<div class="trip"><div style="flex:1"><div style="font-weight:600">${d(f)}</div><div class="mute">${nf(f.price,2)} zł/l${f.litres?`, ${nf(f.litres,2)} l`:''}${f.total?`, razem ${nf(f.total,2)} zł`:''}${f.place?`, ${esc(f.place)}`:''}</div></div><button class="btn x" data-delf="${f.id}" aria-label="Usuń tankowanie">✕</button></div>`).join(''):'<p class="mute">Brak tankowań. Zaimportuj eksport z Fuelio albo dodaj tankowanie ręcznie, a koszty przejazdów policzą się same.</p>';
+}
 /*FILTER-START*/
 let period='all';
 const PL={'30':'ostatnie 30 dni',month:'bieżący miesiąc',year:'bieżący rok'};
@@ -193,20 +247,24 @@ $('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.datase
 async function render(){
  let L=[];
  try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
+ try{FUEL=await loadFuel()}catch{FUEL=[]}
+ renderFuel();
  const total=L.length;L=L.filter(t=>inP(t.date));
  document.querySelectorAll('#seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.p===period));
  $('#sh').textContent=period==='all'?'Podsumowanie archiwum':'Podsumowanie: '+PL[period];
  $('#hh').textContent='Historia przejazdów'+(period==='all'?'':` (${L.length} z ${total})`);
- const S=L.map(t=>({t,r:calc(t)})),sm=f=>S.reduce((a,x)=>a+(f(x)||0),0);
+ const S=L.map(t=>{const r=calc(t),p=priceFor(t.date,t.time,FUEL);return{t,r,p,c:p&&r.fuel!=null?r.fuel*p.price:null}}),sm=f=>S.reduce((a,x)=>a+(f(x)||0),0);
  const share=(a,b)=>{const z=S.filter(x=>x.t[b]>0&&x.t[a]!=null),d=z.reduce((s,x)=>s+x.t[b],0);return d?z.reduce((s,x)=>s+x.t[a],0)/d*100:null};
  const pb=(v,l,m)=>`<div class="bar" style="margin-top:${m}px"><i style="width:${v==null?0:Math.min(100,v)}%"></i></div><div class="mute">${l}: ${nf(v,0)}%</div>`;
+ const cs=S.filter(x=>x.c!=null),cC=cs.reduce((a,x)=>a+x.c,0),cD=cs.reduce((a,x)=>a+x.t.dist,0),cF=cs.reduce((a,x)=>a+x.r.fuel,0),ne=cs.filter(x=>x.p.est).length;
+ const costRows=cs.length?kv('Koszt paliwa łącznie',nf(cC,2)+' zł')+kv('Koszt na 100 km',nf(cD?cC/cD*100:null,2)+' zł')+kv('Średnia cena litra',nf(cF?cC/cF:null,2)+' zł')+(ne?`<p class="mute" style="margin:8px 0 0">Dla ${ne} przejazdów sprzed pierwszego tankowania użyto jego ceny (szacunek).</p>`:''):'';
  const fuel=sm(x=>x.r.fuel),dist=sm(x=>x.t.dist),ok=S.filter(x=>x.r.iceCons!=null);
  const iF=ok.reduce((a,x)=>a+x.r.fuel,0),iD=ok.reduce((a,x)=>a+x.r.iceDist,0);
  $('#sum').innerHTML=S.length?`<div class="two"><div><div class="mute">Średnie realne spalanie łącznie</div><div class="big o">${nf(dist?fuel/dist*100:null)}</div><div class="mute">l/100 km</div></div><div><div class="mute">Średnie realne spalanie na E95</div><div class="big">${nf(iD?iF/iD*100:null)}</div><div class="mute">l/100 km</div></div></div>${pb(share('evDist','dist'),'Udział trybu EV w dystansie (łącznie)',16)}${pb(share('evMin','dur'),'Udział trybu EV w czasie jazdy (łącznie)',12)}<div style="height:6px"></div>`+
-  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')
+  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+costRows
   :`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.'}</p>`;
  const tb=v=>{if(v==null)return'';const e=Math.round(Math.max(0,Math.min(100,v)));return`<span class="bar"><i style="width:${e}%"></i></span><span class="cap"><em class="ev">EV ${e}% czasu</em><em class="ice">E95 ${100-e}%</em></span>`};
- $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span><span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Historia jest pusta.'}</p>`;
+ $('#list').innerHTML=S.length?S.map(({t,r,p,c})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span>${p?`<span class="mute">Koszt <b style="color:var(--ink)">${nf(c,2)} zł</b>${p.est?' (szac.)':''}, ${t.cons!=null?nf(t.cons*p.price,2):'—'} zł/100 km, ${nf(p.price,2)} zł/l</span>`:''}<span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Historia jest pusta.'}</p>`;
 }
 $('#list').onclick=async e=>{
  const d=e.target.closest('[data-del]'),o=e.target.closest('[data-open]');
@@ -216,10 +274,10 @@ $('#list').onclick=async e=>{
 
 /* kopia zapasowa */
 const dl=(name,data,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
-$('#eJ').onclick=async()=>dl(`przejazdy-${stamp()}.json`,JSON.stringify({app:'przejazdy',version:1,trips:(await all()).map(({id,...t})=>t)},null,1),'application/json');
+$('#eJ').onclick=async()=>dl(`przejazdy-${stamp()}.json`,JSON.stringify({app:'przejazdy',version:2,trips:(await all()).map(({id,...t})=>t),fuel:(await allF()).map(({id,...f})=>f)},null,1),'application/json');
 const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())};
-const HEAD=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Trasa / komentarz'];
-const table=async()=>(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons,String(t.note||'').replace(/\s+/g,' ')].map(v=>typeof v==='number'?Math.round(v*1000)/1000:v)});
+const HEAD=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Cena paliwa [zł/l]','Koszt paliwa [zł]','Trasa / komentarz'];
+const table=async()=>{const F=await loadFuel();return(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t),p=priceFor(t.date,t.time,F);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons,p?p.price:null,p&&r.fuel!=null?r.fuel*p.price:null,String(t.note||'').replace(/\s+/g,' ')].map(v=>typeof v==='number'?Math.round(v*1000)/1000:v)})};
 $('#eC').onclick=async()=>{
  const q=v=>v==null?'':typeof v==='number'?String(v).replace('.',','):/[;"]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
  const rows=(await table()).map(r=>r.map(q).join(';'));
@@ -246,7 +304,7 @@ function xlsx(H,rows){
  const L=i=>String.fromCharCode(65+i),X='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
  const cell=(v,i,r,s)=>v==null||v===''?'':typeof v==='number'?`<c r="${L(i)}${r}"><v>${v}</v></c>`:`<c r="${L(i)}${r}" t="inlineStr"${s?' s="1"':''}><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
  const line=(a,r,s)=>`<row r="${r}">${a.map((v,i)=>cell(v,i,r,s)).join('')}</row>`;
- const sheet=X+`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="13" width="18" customWidth="1"/><col min="14" max="14" width="40" customWidth="1"/></cols><sheetData>${line(H,1,1)}${rows.map((a,i)=>line(a,i+2)).join('')}</sheetData></worksheet>`;
+ const sheet=X+`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="15" width="18" customWidth="1"/><col min="16" max="16" width="40" customWidth="1"/></cols><sheetData>${line(H,1,1)}${rows.map((a,i)=>line(a,i+2)).join('')}</sheetData></worksheet>`;
  const R='http://schemas.openxmlformats.org/officeDocument/2006/relationships',O='application/vnd.openxmlformats-officedocument.spreadsheetml.';
  return zip([
   ['[Content_Types].xml',X+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${O}sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${O}worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="${O}styles+xml"/></Types>`],
@@ -268,7 +326,34 @@ $('#imp').onchange=async e=>{
    const t={date:x.date,time:/^\d{2}:\d{2}$/.test(x.time)?x.time:'',note:String(x.note||'').slice(0,300),createdAt:Date.now()};FD.slice(1).forEach(([k])=>t[k]=num(x[k]));
    if(ex.has(key(t)))continue;ex.add(key(t));await add(t);n++;
   }
-  period='all';alert(`Zaimportowano przejazdów: ${n}`);render();
+  let nF=0;const exF=new Set((await allF()).map(fkey));
+  for(const x of j.fuel||[]){
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(x.date)||!(num(x.price)>0))continue;
+   const f={date:x.date,time:/^\d{2}:\d{2}$/.test(x.time)?x.time:'',litres:num(x.litres),total:num(x.total),price:num(x.price),place:String(x.place||'').slice(0,100),odo:num(x.odo),createdAt:Date.now()};
+   if(exF.has(fkey(f)))continue;exF.add(fkey(f));await addF(f);nF++;
+  }
+  period='all';alert(`Zaimportowano przejazdów: ${n}`+(nF?`, tankowań: ${nF}`:''));render();
+ }catch{alert('Nie udało się odczytać pliku.')}
+};
+
+/* tankowania */
+$('#fAdd').onclick=()=>{$('#g_date').value=today();['g_time','g_price','g_l'].forEach(i=>$('#'+i).value='');$('#fform').hidden=false};
+$('#gCancel').onclick=()=>{$('#fform').hidden=true};
+$('#gSave').onclick=async()=>{
+ const price=num($('#g_price').value),l=num($('#g_l').value),date=$('#g_date').value;
+ if(!date||!(price>0))return alert('Podaj datę i cenę za litr.');
+ await addF({date,time:$('#g_time').value,price,litres:l,total:l?Math.round(l*price*100)/100:null,place:'',odo:null,createdAt:Date.now()});
+ $('#fform').hidden=true;render();
+};
+$('#flist').onclick=async e=>{const b=e.target.closest('[data-delf]');if(b&&confirm('Usunąć to tankowanie?')){await delF(+b.dataset.delf);render()}};
+$('#impF').onchange=async e=>{
+ const f=e.target.files[0];e.target.value='';if(!f)return;
+ try{
+  const r=fuelioParse(await f.text());
+  if(!r)return alert('To nie wygląda na eksport z Fuelio (brak sekcji "## Log").');
+  const ex=new Set((await allF()).map(fkey));let n=0,sk=r.sk;
+  for(const x of r.out){if(ex.has(fkey(x))){sk++;continue}ex.add(fkey(x));x.createdAt=Date.now();await addF(x);n++}
+  alert(`Zaimportowano tankowań: ${n}`+(sk?`. Pominięto: ${sk} (duplikaty lub wiersze bez ceny).`:''));render();
  }catch{alert('Nie udało się odczytać pliku.')}
 };
 
