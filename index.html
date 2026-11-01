@@ -44,6 +44,10 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 .x{width:44px;min-height:44px;padding:0;color:var(--mute);flex:none}
 #th{width:56px;border-radius:8px;border:1px solid var(--line)}
 [hidden]{display:none!important}
+.seg{display:flex;gap:6px;margin-bottom:14px}
+.seg button{flex:1;min-height:44px;padding:0 4px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--acc);color:var(--on);border-color:var(--acc)}
+.seg button:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 </style></head>
 <body><main>
 <h1>Dziennik przejazdów</h1>
@@ -67,8 +71,10 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
  <div class="row" style="margin-top:14px"><button class="btn" id="cancel">Anuluj</button><button class="btn p" id="save">Zapisz przejazd</button></div>
 </section>
 
-<section class="card"><h2>Podsumowanie archiwum</h2><div id="sum"></div></section>
-<section class="card"><h2>Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
+<section class="card"><h2 id="sh">Podsumowanie archiwum</h2>
+ <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button></div>
+ <div id="sum"></div></section>
+<section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Kopia zapasowa</h2>
  <div class="row"><button class="btn" id="eJ">Eksport JSON</button><button class="btn" id="eC">Eksport CSV</button></div>
  <div class="row" style="margin-top:10px"><button class="btn" id="eX">Eksport XLSX</button><label class="btn" for="imp">Import JSON</label></div>
@@ -166,13 +172,31 @@ $('#save').onclick=async()=>{
  if(!t.date||t.dist==null||t.cons==null)return alert('Uzupełnij co najmniej datę, dystans i zużycie paliwa.');
  if(editId==null&&(await all()).some(x=>key(x)===key(t))&&!confirm('Taki przejazd jest już zapisany. Dodać mimo to?'))return;
  if(editId!=null){t.id=editId;t.createdAt=editCreated;await put(t)}else{t.createdAt=Date.now();await add(t)}
+ if(!inP(t.date))period='all';
  editId=null;$('#form').hidden=true;st('');render();
 };
 
 /* archiwum */
+/*FILTER-START*/
+let period='all';
+const PL={'30':'ostatnie 30 dni',month:'bieżący miesiąc',year:'bieżący rok'};
+function inP(d){
+ if(period==='all')return true;
+ const t=today();
+ if(period==='month')return d.slice(0,7)===t.slice(0,7);
+ if(period==='year')return d.slice(0,4)===t.slice(0,4);
+ const x=new Date();x.setDate(x.getDate()-29);
+ return d>=x.toLocaleDateString('sv-SE');
+}
+$('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.dataset.p;render()}};
+/*FILTER-END*/
 async function render(){
  let L=[];
  try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
+ const total=L.length;L=L.filter(t=>inP(t.date));
+ document.querySelectorAll('#seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.p===period));
+ $('#sh').textContent=period==='all'?'Podsumowanie archiwum':'Podsumowanie: '+PL[period];
+ $('#hh').textContent='Historia przejazdów'+(period==='all'?'':` (${L.length} z ${total})`);
  const S=L.map(t=>({t,r:calc(t)})),sm=f=>S.reduce((a,x)=>a+(f(x)||0),0);
  const share=(a,b)=>{const z=S.filter(x=>x.t[b]>0&&x.t[a]!=null),d=z.reduce((s,x)=>s+x.t[b],0);return d?z.reduce((s,x)=>s+x.t[a],0)/d*100:null};
  const pb=(v,l,m)=>`<div class="bar" style="margin-top:${m}px"><i style="width:${v==null?0:Math.min(100,v)}%"></i></div><div class="mute">${l}: ${nf(v,0)}%</div>`;
@@ -180,9 +204,9 @@ async function render(){
  const iF=ok.reduce((a,x)=>a+x.r.fuel,0),iD=ok.reduce((a,x)=>a+x.r.iceDist,0);
  $('#sum').innerHTML=S.length?`<div class="two"><div><div class="mute">Średnie realne spalanie łącznie</div><div class="big o">${nf(dist?fuel/dist*100:null)}</div><div class="mute">l/100 km</div></div><div><div class="mute">Średnie realne spalanie na E95</div><div class="big">${nf(iD?iF/iD*100:null)}</div><div class="mute">l/100 km</div></div></div>${pb(share('evDist','dist'),'Udział trybu EV w dystansie (łącznie)',16)}${pb(share('evMin','dur'),'Udział trybu EV w czasie jazdy (łącznie)',12)}<div style="height:6px"></div>`+
   kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')
-  :'<p class="mute">Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.</p>';
+  :`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.'}</p>`;
  const tb=v=>{if(v==null)return'';const e=Math.round(Math.max(0,Math.min(100,v)));return`<span class="bar"><i style="width:${e}%"></i></span><span class="cap"><em class="ev">EV ${e}% czasu</em><em class="ice">E95 ${100-e}%</em></span>`};
- $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span><span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):'<p class="mute">Historia jest pusta.</p>';
+ $('#list').innerHTML=S.length?S.map(({t,r})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span><span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Historia jest pusta.'}</p>`;
 }
 $('#list').onclick=async e=>{
  const d=e.target.closest('[data-del]'),o=e.target.closest('[data-open]');
@@ -244,7 +268,7 @@ $('#imp').onchange=async e=>{
    const t={date:x.date,time:/^\d{2}:\d{2}$/.test(x.time)?x.time:'',note:String(x.note||'').slice(0,300),createdAt:Date.now()};FD.slice(1).forEach(([k])=>t[k]=num(x[k]));
    if(ex.has(key(t)))continue;ex.add(key(t));await add(t);n++;
   }
-  alert(`Zaimportowano przejazdów: ${n}`);render();
+  period='all';alert(`Zaimportowano przejazdów: ${n}`);render();
  }catch{alert('Nie udało się odczytać pliku.')}
 };
 
