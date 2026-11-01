@@ -48,6 +48,9 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 .seg button{flex:1;min-height:44px;padding:0 4px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
 .seg button[aria-pressed=true]{background:var(--acc);color:var(--on);border-color:var(--acc)}
 .seg button:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
+.seg{flex-wrap:wrap}.seg button[data-p=tank]{flex:1 1 100%}
+select{width:100%;min-height:48px;margin-bottom:14px;padding:0 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font-size:16px;font-family:inherit}
+select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 </style></head>
 <body><main>
 <h1>Dziennik przejazdów</h1>
@@ -72,8 +75,8 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 </section>
 
 <section class="card"><h2 id="sh">Podsumowanie archiwum</h2>
- <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button></div>
- <div id="sum"></div></section>
+ <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button><button data-p="tank">Bak: od tankowania do tankowania</button></div>
+ <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div></section>
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Tankowania</h2>
  <p class="mute" style="margin:-6px 0 10px">Przejazd dostaje cenę paliwa z ostatniego tankowania przed nim.</p>
@@ -81,7 +84,7 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
  <div class="row" style="margin-top:10px"><button class="btn" id="fAdd">Dodaj tankowanie</button><label class="btn" for="impF">Import z Fuelio</label></div>
  <input id="impF" type="file" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel" hidden>
  <div id="fform" hidden style="margin-top:12px">
-  <div class="grid"><label class="f">Data<input id="g_date" type="date"></label><label class="f">Godzina<input id="g_time" type="time"></label><label class="f">Cena za litr (zł)<input id="g_price" inputmode="decimal"></label><label class="f">Litry (opcjonalnie)<input id="g_l" inputmode="decimal"></label></div>
+  <div class="grid"><label class="f">Data<input id="g_date" type="date"></label><label class="f">Godzina<input id="g_time" type="time"></label><label class="f">Cena za litr (zł)<input id="g_price" inputmode="decimal"></label><label class="f">Litry (opcjonalnie)<input id="g_l" inputmode="decimal"></label><label class="f">Przebieg licznika, km (opcjonalnie)<input id="g_odo" inputmode="decimal"></label></div>
   <div class="row" style="margin-top:12px"><button class="btn" id="gCancel">Anuluj</button><button class="btn p" id="gSave">Zapisz tankowanie</button></div>
  </div>
 </section>
@@ -229,13 +232,14 @@ function fuelioParse(text){
 /*FUEL-END*/
 function renderFuel(){
  const d=f=>new Date(f.date+'T12:00').toLocaleDateString('pl-PL',{day:'numeric',month:'short',year:'numeric'})+(f.time?', '+f.time:'');
- $('#flist').innerHTML=FUEL.length?[...FUEL].reverse().map(f=>`<div class="trip"><div style="flex:1"><div style="font-weight:600">${d(f)}</div><div class="mute">${nf(f.price,2)} zł/l${f.litres?`, ${nf(f.litres,2)} l`:''}${f.total?`, razem ${nf(f.total,2)} zł`:''}${f.place?`, ${esc(f.place)}`:''}</div></div><button class="btn x" data-delf="${f.id}" aria-label="Usuń tankowanie">✕</button></div>`).join(''):'<p class="mute">Brak tankowań. Zaimportuj eksport z Fuelio albo dodaj tankowanie ręcznie, a koszty przejazdów policzą się same.</p>';
+ $('#flist').innerHTML=FUEL.length?[...FUEL].reverse().map(f=>`<div class="trip"><div style="flex:1"><div style="font-weight:600">${d(f)}</div><div class="mute">${nf(f.price,2)} zł/l${f.litres?`, ${nf(f.litres,2)} l`:''}${f.total?`, razem ${nf(f.total,2)} zł`:''}${f.odo?`, ${nf(f.odo,0)} km`:''}${f.place?`, ${esc(f.place)}`:''}</div></div><button class="btn x" data-delf="${f.id}" aria-label="Usuń tankowanie">✕</button></div>`).join(''):'<p class="mute">Brak tankowań. Zaimportuj eksport z Fuelio albo dodaj tankowanie ręcznie, a koszty przejazdów policzą się same.</p>';
 }
 /*FILTER-START*/
-let period='all';
-const PL={'30':'ostatnie 30 dni',month:'bieżący miesiąc',year:'bieżący rok'};
+let period='all',tankKey=null;
+const PL={'30':'ostatnie 30 dni',month:'bieżący miesiąc',year:'bieżący rok',tank:'wybrany bak'};
+const tk=t=>t.date+' '+(t.time||'23:59'),dd=f=>new Date(f.date+'T12:00').toLocaleDateString('pl-PL',{day:'numeric',month:'short',year:'numeric'}),segs=F=>F.map((a,i)=>({a,b:F[i+1]||null,s:fk(a),e:F[i+1]?fk(F[i+1]):'9'}));
 function inP(d){
- if(period==='all')return true;
+ if(period==='all'||period==='tank')return true;
  const t=today();
  if(period==='month')return d.slice(0,7)===t.slice(0,7);
  if(period==='year')return d.slice(0,4)===t.slice(0,4);
@@ -243,6 +247,7 @@ function inP(d){
  return d>=x.toLocaleDateString('sv-SE');
 }
 $('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.dataset.p;render()}};
+$('#tankSel').onchange=e=>{tankKey=e.target.value;render()};
 /*FILTER-END*/
 async function render(){
  let L=[];
@@ -250,6 +255,10 @@ async function render(){
  try{FUEL=await loadFuel()}catch{FUEL=[]}
  renderFuel();
  const total=L.length;L=L.filter(t=>inP(t.date));
+ const SG=segs(FUEL).reverse();let seg=null;
+ if(period==='tank'){seg=SG.find(x=>fk(x.a)===tankKey)||SG.find(x=>x.b)||SG[0]||null;if(seg)tankKey=fk(seg.a);L=seg?L.filter(t=>{const k=tk(t);return k>=seg.s&&k<seg.e}):[]}
+ $('#tankSel').hidden=!(period==='tank'&&SG.length);
+ $('#tankSel').innerHTML=SG.map(x=>`<option value="${esc(fk(x.a))}"${x===seg?' selected':''}>${dd(x.a)} → ${x.b?dd(x.b):'trwa'}</option>`).join('');
  document.querySelectorAll('#seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.p===period));
  $('#sh').textContent=period==='all'?'Podsumowanie archiwum':'Podsumowanie: '+PL[period];
  $('#hh').textContent='Historia przejazdów'+(period==='all'?'':` (${L.length} z ${total})`);
@@ -260,9 +269,20 @@ async function render(){
  const costRows=cs.length?kv('Koszt paliwa łącznie',nf(cC,2)+' zł')+kv('Koszt na 100 km',nf(cD?cC/cD*100:null,2)+' zł')+kv('Średnia cena litra',nf(cF?cC/cF:null,2)+' zł')+(ne?`<p class="mute" style="margin:8px 0 0">Dla ${ne} przejazdów sprzed pierwszego tankowania użyto jego ceny (szacunek).</p>`:''):'';
  const fuel=sm(x=>x.r.fuel),dist=sm(x=>x.t.dist),ok=S.filter(x=>x.r.iceCons!=null);
  const iF=ok.reduce((a,x)=>a+x.r.fuel,0),iD=ok.reduce((a,x)=>a+x.r.iceDist,0);
+ const tankRows=(()=>{
+  if(!seg)return'';
+  const{a,b}=seg,lit=b&&b.litres>0?b.litres:null,od=b&&a.odo>0&&b.odo>a.odo?b.odo-a.odo:null,n=t=>`<p class="mute" style="margin:8px 0 0">${t}</p>`;
+  let h=kv('Okres baku',dd(a)+' → '+(b?dd(b):'trwa'));
+  if(!b)return h+n('Ten bak jeszcze trwa. Porównanie z Fuelio będzie dostępne po następnym tankowaniu.');
+  h+=kv('Zatankowano na końcu baku',lit?nf(lit,2)+' l':'—')+kv('Dystans wg licznika',od?nf(od,0)+' km':'—')+kv('Spalanie jak w Fuelio',lit&&od?nf(lit/od*100,2)+' l/100 km':'—');
+  if(lit)h+=kv('Różnica: MyToyota − zatankowano',nf(fuel-lit,2)+' l ('+nf((fuel-lit)/lit*100,0)+'%)');
+  if(od&&Math.abs(od-dist)/od>.05)h+=`<div class="warn">Przejazdy z MyToyota obejmują ${nf(dist,0)} km, a licznik pokazuje ${nf(od,0)} km. Część przejazdów nie jest wczytana, więc porównanie z Fuelio będzie przybliżone.</div>`;
+  if(!lit||!od)h+=n('Do porównania potrzebne są litry z końca baku i przebieg licznika na obu tankowaniach.');
+  return h+n('Spalanie jak w Fuelio zakłada tankowanie do pełna na początku i na końcu baku.');
+ })();
  $('#sum').innerHTML=S.length?`<div class="two"><div><div class="mute">Średnie realne spalanie łącznie</div><div class="big o">${nf(dist?fuel/dist*100:null)}</div><div class="mute">l/100 km</div></div><div><div class="mute">Średnie realne spalanie na E95</div><div class="big">${nf(iD?iF/iD*100:null)}</div><div class="mute">l/100 km</div></div></div>${pb(share('evDist','dist'),'Udział trybu EV w dystansie (łącznie)',16)}${pb(share('evMin','dur'),'Udział trybu EV w czasie jazdy (łącznie)',12)}<div style="height:6px"></div>`+
-  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+costRows
-  :`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.'}</p>`;
+  kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+costRows+tankRows
+  :`<p class="mute">${period==='tank'&&!SG.length?'Dodaj tankowanie, a zobaczysz przejazdy z jednego baku.':total?'Brak przejazdów w wybranym okresie.':'Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.'}</p>`;
  const tb=v=>{if(v==null)return'';const e=Math.round(Math.max(0,Math.min(100,v)));return`<span class="bar"><i style="width:${e}%"></i></span><span class="cap"><em class="ev">EV ${e}% czasu</em><em class="ice">E95 ${100-e}%</em></span>`};
  $('#list').innerHTML=S.length?S.map(({t,r,p,c})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span>${p?`<span class="mute">Koszt <b style="color:var(--ink)">${nf(c,2)} zł</b>${p.est?' (szac.)':''}, ${t.cons!=null?nf(t.cons*p.price,2):'—'} zł/100 km, ${nf(p.price,2)} zł/l</span>`:''}<span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Historia jest pusta.'}</p>`;
 }
@@ -337,12 +357,12 @@ $('#imp').onchange=async e=>{
 };
 
 /* tankowania */
-$('#fAdd').onclick=()=>{$('#g_date').value=today();['g_time','g_price','g_l'].forEach(i=>$('#'+i).value='');$('#fform').hidden=false};
+$('#fAdd').onclick=()=>{$('#g_date').value=today();['g_time','g_price','g_l','g_odo'].forEach(i=>$('#'+i).value='');$('#fform').hidden=false};
 $('#gCancel').onclick=()=>{$('#fform').hidden=true};
 $('#gSave').onclick=async()=>{
  const price=num($('#g_price').value),l=num($('#g_l').value),date=$('#g_date').value;
  if(!date||!(price>0))return alert('Podaj datę i cenę za litr.');
- await addF({date,time:$('#g_time').value,price,litres:l,total:l?Math.round(l*price*100)/100:null,place:'',odo:null,createdAt:Date.now()});
+ await addF({date,time:$('#g_time').value,price,litres:l,total:l?Math.round(l*price*100)/100:null,place:'',odo:num($('#g_odo').value),createdAt:Date.now()});
  $('#fform').hidden=true;render();
 };
 $('#flist').onclick=async e=>{const b=e.target.closest('[data-delf]');if(b&&confirm('Usunąć to tankowanie?')){await delF(+b.dataset.delf);render()}};
