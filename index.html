@@ -77,6 +77,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 <section class="card"><h2 id="sh">Podsumowanie archiwum</h2>
  <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button><button data-p="tank">Bak: od tankowania do tankowania</button></div>
  <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div></section>
+<section class="card"><h2>Trendy</h2><div id="trends"></div></section>
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Tankowania</h2>
  <p class="mute" style="margin:-6px 0 10px">Przejazd dostaje cenę paliwa z ostatniego tankowania przed nim.</p>
@@ -249,12 +250,49 @@ function inP(d){
 $('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.dataset.p;render()}};
 $('#tankSel').onchange=e=>{tankKey=e.target.value;render()};
 /*FILTER-END*/
+/*TRENDS-START*/
+const wk=d=>{const x=new Date(d+'T12:00');x.setDate(x.getDate()-(x.getDay()+6)%7);return x.toLocaleDateString('sv-SE')},sd=d=>d.slice(8,10)+'.'+d.slice(5,7);
+function chart(ser,lab,dec){
+ const W=300,H=150,PL=34,PR=8,PT=10,PB=22,vs=ser.flatMap(s=>s.v).filter(v=>v!=null);
+ if(!vs.length)return'';
+ let lo=Math.min(...vs),hi=Math.max(...vs);const p=(hi-lo||1)*.2;lo=Math.max(0,lo-p);hi+=p;
+ const n=lab.length,x=i=>PL+(n<2?(W-PL-PR)/2:i*(W-PL-PR)/(n-1)),y=v=>PT+(H-PT-PB)*(1-(v-lo)/(hi-lo)),f=v=>v.toFixed(1);
+ let g='';
+ [lo,(lo+hi)/2,hi].forEach(v=>{g+=`<line x1="${PL}" x2="${W-PR}" y1="${f(y(v))}" y2="${f(y(v))}" style="stroke:var(--line)"/><text x="${PL-4}" y="${f(y(v)+3)}" text-anchor="end" style="fill:var(--mute);font-size:10px">${nf(v,dec)}</text>`});
+ const st=Math.ceil(n/5);
+ lab.forEach((s,i)=>{if(i%st===0)g+=`<text x="${f(x(i))}" y="${H-6}" text-anchor="middle" style="fill:var(--mute);font-size:10px">${s}</text>`});
+ ser.forEach(s=>{let d='',dots='',pr=false;s.v.forEach((v,i)=>{if(v==null){pr=false;return}d+=(pr?'L':'M')+f(x(i))+' '+f(y(v));pr=true;dots+=`<circle cx="${f(x(i))}" cy="${f(y(v))}" r="3.5" style="fill:${s.c}"/>`});g+=`<path d="${d}" style="fill:none;stroke:${s.c};stroke-width:2"/>${dots}`});
+ const leg=ser.map(s=>{const l=[...s.v].reverse().find(v=>v!=null);return`<span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.c};margin-right:5px"></i>${s.n}: <b style="color:var(--ink)">${nf(l,dec)}</b></span>`}).join('');
+ return`<div class="mute" style="display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 6px">${leg}</div><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Wykres: ${esc(ser.map(s=>s.n).join(', '))}" style="display:block">${g}</svg>`;
+}
+function renderTrends(ALL){
+ const el=$('#trends'),h3=t=>`<h3 style="font-size:15px;margin:18px 0 0">${t}</h3>`,note=t=>`<p class="mute" style="margin:6px 0 0">${t}</p>`;
+ const T=ALL.filter(t=>t.dist>0).map(t=>({t,r:calc(t)}));
+ if(!T.length){el.innerHTML=note('Wykresy pojawią się po wczytaniu pierwszych przejazdów.');return}
+ const W={};
+ T.forEach(({t,r})=>{const w=W[wk(t.date)]||(W[wk(t.date)]={c:[0,0],t:[0,0],d:0,e:0}),g=t.dist<=12?w.c:w.t;
+  if(r.fuel!=null){g[0]+=r.fuel;g[1]+=t.dist}
+  if(r.iceDist!=null){w.d+=t.dist;w.e+=t.dist-r.iceDist}});
+ const ks=Object.keys(W).sort().slice(-26),lab=ks.map(sd),cs=g=>g[1]>0?g[0]/g[1]*100:null;
+ let h=h3('Spalanie tydzień po tygodniu (l/100 km)')+chart([{n:'Miasto (do 12 km)',c:'var(--org)',v:ks.map(k=>cs(W[k].c))},{n:'Trasa (powyżej 12 km)',c:'var(--ev)',v:ks.map(k=>cs(W[k].t))}],lab,1)+note('Miasto i trasa osobno, bo długie trasy zaniżają średnią. Punkt to poniedziałek danego tygodnia.');
+ h+=h3('Udział trybu EV w dystansie (%)')+chart([{n:'EV',c:'var(--ev)',v:ks.map(k=>W[k].d>0?W[k].e/W[k].d*100:null)}],lab,0);
+ const bk=[];
+ segs(FUEL).forEach(({a,b,s,e})=>{
+  if(!b||!(b.litres>0)||!(a.odo>0)||!(b.odo>a.odo))return;
+  const tt=T.filter(({t,r})=>{const k=tk(t);return k>=s&&k<e&&r.fuel!=null}),D=tt.reduce((q,x)=>q+x.t.dist,0),F=tt.reduce((q,x)=>q+x.r.fuel,0);
+  bk.push({l:sd(b.date),fu:b.litres/(b.odo-a.odo)*100,my:D>0?F/D*100:null})});
+ h+=h3('Spalanie na bak (l/100 km)');
+ h+=bk.length?chart([{n:'Z tankowania (jak Fuelio)',c:'var(--acc)',v:bk.map(x=>x.fu)},{n:'Wg MyToyota',c:'var(--mute)',v:bk.map(x=>x.my)}],bk.map(x=>x.l),2)+note('Punkt to data tankowania zamykającego bak.'):note('Ten wykres pojawi się po drugim tankowaniu, gdy znane są litry i przebieg licznika na obu.');
+ el.innerHTML=h;
+}
+/*TRENDS-END*/
 async function render(){
  let L=[];
  try{L=(await all()).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||b.id-a.id)}catch{st('Ta przeglądarka nie udostępnia pamięci na dane.')}
  try{FUEL=await loadFuel()}catch{FUEL=[]}
  renderFuel();
- const total=L.length;L=L.filter(t=>inP(t.date));
+ const total=L.length,ALL=L;L=L.filter(t=>inP(t.date));
+ try{renderTrends(ALL)}catch(e){}
  const SG=segs(FUEL).reverse();let seg=null;
  if(period==='tank'){seg=SG.find(x=>fk(x.a)===tankKey)||SG.find(x=>x.b)||SG[0]||null;if(seg)tankKey=fk(seg.a);L=seg?L.filter(t=>{const k=tk(t);return k>=seg.s&&k<seg.e}):[]}
  $('#tankSel').hidden=!(period==='tank'&&SG.length);
