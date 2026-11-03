@@ -54,6 +54,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 #report{color:#101c26;--bg:#fff;--card:#fff;--ink:#101c26;--mute:#5b6b78;--line:#d5dce2;--acc:#d4101f;--ev:#0b8a7a;--org:#e0690c;--warn:#7a4300;--wbg:#fff0d0}
 #report h1{font-size:22px;margin:0 0 2px}#report h2{font-size:15px;margin:18px 0 6px}
 #report table{width:100%;border-collapse:collapse;font-size:11px}#report th{text-align:left;color:#5b6b78;font-weight:600;border-bottom:1.5px solid #101c26;padding:4px 3px}#report td{border-bottom:1px solid #d5dce2;padding:4px 3px;vertical-align:top}#report tr{break-inside:avoid}#report thead{display:table-header-group}#report .r{text-align:right;white-space:nowrap}
+.rt{width:100%;border-collapse:collapse;font-size:13px}.rt th{text-align:left;color:var(--mute);font-weight:600;padding:4px 2px}.rt td{padding:7px 2px;border-top:1px solid var(--line)}.rt .r{text-align:right;white-space:nowrap;padding-left:6px}
 #report .tot td{font-weight:700;border-top:1.5px solid #101c26}
 @page{size:A4;margin:14mm}
 @media print{body>*:not(#report){display:none!important}#report{display:block!important}body{background:#fff!important;color:#101c26!important}}
@@ -81,10 +82,12 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
  <div class="row" style="margin-top:14px"><button class="btn" id="cancel">Anuluj</button><button class="btn p" id="save">Zapisz przejazd</button></div>
 </section>
 
+<section class="card"><h2>Bak</h2><div id="home"></div></section>
 <section class="card"><h2 id="sh">Podsumowanie archiwum</h2>
  <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button><button data-p="tank">Bak: od tankowania do tankowania</button></div>
  <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div><button class="btn" id="rptBtn" style="width:100%;margin-top:14px" hidden>Eksport PDF (raport z tego filtra)</button></section>
 <section class="card"><h2>Trendy</h2><div id="trends"></div></section>
+<section class="card"><h2>Moje trasy</h2><div id="routes"></div></section>
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Tankowania</h2>
  <p class="mute" style="margin:-6px 0 10px">Przejazd dostaje cenę paliwa z ostatniego tankowania przed nim.</p>
@@ -292,10 +295,34 @@ function renderTrends(ALL,tgt,noBak){
   if(!b||!(b.litres>0)||!(a.odo>0)||!(b.odo>a.odo))return;
   const tt=T.filter(({t,r})=>{const k=tk(t);return k>=s&&k<e&&r.fuel!=null}),D=tt.reduce((q,x)=>q+x.t.dist,0),F=tt.reduce((q,x)=>q+x.r.fuel,0);
   bk.push({l:sd(b.date),fu:b.litres/(b.odo-a.odo)*100,my:D>0?F/D*100:null})});
+ const pr=FUEL.filter(f=>f.price>0);
+ h+=h3('Cena paliwa (zł/l)')+(pr.length>1?chart([{n:'Cena',c:'var(--org)',v:pr.map(f=>f.price)}],pr.map(f=>sd(f.date)),2):note('Wykres pojawi się po drugim tankowaniu z ceną.'));
  h+=h3('Spalanie na bak (l/100 km)');
  h+=bk.length?chart([{n:'Z tankowania (jak Fuelio)',c:'var(--acc)',v:bk.map(x=>x.fu)},{n:'Wg MyToyota',c:'var(--mute)',v:bk.map(x=>x.my)}],bk.map(x=>x.l),2)+note('Punkt to data tankowania zamykającego bak.'):note('Ten wykres pojawi się po drugim tankowaniu, gdy znane są litry i przebieg licznika na obu.');
  }
  el.innerHTML=h;
+}
+function renderHome(ALL){
+ const el=$('#home'),SG=segs(FUEL).reverse(),T=ALL.filter(t=>t.dist>0).map(t=>({t,r:calc(t)})),
+  note=t=>`<p class="mute" style="margin:6px 0 0">${t}</p>`,h3=t=>`<h3 style="font-size:15px;margin:14px 0 4px">${t}</h3>`,pc=v=>v==null?'—':nf(v,0)+'%',
+  cons=(F,D)=>D>0?nf(F/D*100,2)+' l/100 km':'—',
+  part=s=>{const tt=T.filter(({t})=>{const k=tk(t);return k>=s.s&&k<s.e});return{n:tt.length,D:tt.reduce((q,x)=>q+x.t.dist,0),F:tt.reduce((q,x)=>q+(x.r.fuel||0),0),ev:tt.reduce((q,x)=>q+(x.t.evDist||0),0)}};
+ if(!SG.length){el.innerHTML=note('Dodaj pierwsze tankowanie (sekcja Tankowania), a zobaczysz tu bieżący i ostatni bak.');return}
+ let h='';const cur=SG.find(x=>!x.b),cl=SG.filter(x=>x.b),last=cl[0];
+ if(cur){const p=part(cur);h+=h3('Bieżący bak (od '+dd(cur.a)+')')+(p.n?kv('Przejechano (z przejazdów)',nf(p.D,0)+' km')+kv('Paliwo wg MyToyota',nf(p.F,1)+' l')+kv('Spalanie wg MyToyota',cons(p.F,p.D))+kv('Udział EV',pc(p.D?p.ev/p.D*100:null))+kv('Koszt paliwa',cur.a.price>0?nf(p.F*cur.a.price,2)+' zł':'—')+(cur.a.odo>0?kv('Szac. stan licznika',nf(cur.a.odo+p.D,0)+' km'):''):note('Brak przejazdów od ostatniego tankowania.'))}
+ if(last){const{a,b}=last,p=part(last),lit=b.litres>0?b.litres:null,od=a.odo>0&&b.odo>a.odo?b.odo-a.odo:null;
+  h+=h3('Ostatni bak ('+dd(a)+' → '+dd(b)+')')+kv('Spalanie jak w Fuelio',lit&&od?nf(lit/od*100,2)+' l/100 km':'—')+kv('Spalanie wg MyToyota',cons(p.F,p.D))+kv('Zasięg wg licznika',od?nf(od,0)+' km':'—')+kv('Koszt tankowania',b.total>0?nf(b.total,2)+' zł':lit&&b.price>0?nf(lit*b.price,2)+' zł':'—');
+  if(od&&lit)h+=kv('Poza zapisanymi przejazdami',`ok. ${nf(Math.max(0,od-p.D),0)} km i ${nf(Math.max(0,lit-p.F),1)} l`);
+  const rs=cl.map(x=>x.a.odo>0&&x.b.odo>x.a.odo?x.b.odo-x.a.odo:0).filter(v=>v>0);
+  if(rs.length>1)h+=kv('Średni zasięg na bak',nf(rs.reduce((q,v)=>q+v,0)/rs.length,0)+' km')
+ }else h+=note('Porównanie z Fuelio pojawi się po następnym tankowaniu.');
+ el.innerHTML=h;
+}
+function renderRoutes(ALL){
+ const R={};
+ ALL.forEach(t=>{const n=(t.note||'').trim().replace(/\s+/g,' '),k=n.toLowerCase();if(!k||!(t.dist>0))return;const r=calc(t),m=R[k]||(R[k]={n,c:0,d:0,f:0,fd:0,e:0});m.c++;m.d+=t.dist;m.e+=t.evDist||0;if(r.fuel!=null){m.f+=r.fuel;m.fd+=t.dist}});
+ const L=Object.values(R).filter(m=>m.c>1).sort((a,b)=>b.c-a.c||b.d-a.d).slice(0,12);
+ $('#routes').innerHTML=L.length?`<table class="rt"><thead><tr><th>Trasa</th><th class="r">Razy</th><th class="r">Śr. km</th><th class="r">l/100</th><th class="r">EV %</th></tr></thead><tbody>${L.map(m=>`<tr><td>${esc(m.n)}</td><td class="r">${m.c}</td><td class="r">${nf(m.d/m.c)}</td><td class="r">${m.fd?nf(m.f/m.fd*100,1):'—'}</td><td class="r">${nf(m.e/m.d*100,0)}</td></tr>`).join('')}</tbody></table><p class="mute" style="margin:8px 0 0">Trasy z identycznym opisem, przejechane co najmniej dwa razy. „Dom - Praca” i „Praca - Dom” to osobne trasy.</p>`:'<p class="mute">Pojawią się tu trasy, które przejedziesz co najmniej dwa razy pod tym samym opisem.</p>';
 }
 function buildReport(){
  const{S,seg,period:p}=RPT,ds=d=>new Date(d+'T12:00').toLocaleDateString('pl-PL'),D=S.map(x=>x.t.date).sort(),mo=p==='year'||p==='all',
@@ -327,6 +354,8 @@ async function render(){
  const total=L.length,ALL=L;L=L.filter(t=>inP(t.date));
  try{renderTrends(ALL)}catch(e){}
  try{renderBk(ALL.length+FUEL.length)}catch(e){}
+ try{renderHome(ALL)}catch(e){}
+ try{renderRoutes(ALL)}catch(e){}
  const SG=segs(FUEL).reverse();let seg=null;
  if(period==='tank'){seg=SG.find(x=>fk(x.a)===tankKey)||SG.find(x=>x.b)||SG[0]||null;if(seg)tankKey=fk(seg.a);L=seg?L.filter(t=>{const k=tk(t);return k>=seg.s&&k<seg.e}):[]}
  $('#tankSel').hidden=!(period==='tank'&&SG.length);
