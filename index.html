@@ -54,6 +54,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 #report{color:#101c26;--bg:#fff;--card:#fff;--ink:#101c26;--mute:#5b6b78;--line:#d5dce2;--acc:#d4101f;--ev:#0b8a7a;--org:#e0690c;--warn:#7a4300;--wbg:#fff0d0}
 #report h1{font-size:22px;margin:0 0 2px}#report h2{font-size:15px;margin:18px 0 6px}
 #report table{width:100%;border-collapse:collapse;font-size:11px}#report th{text-align:left;color:#5b6b78;font-weight:600;border-bottom:1.5px solid #101c26;padding:4px 3px}#report td{border-bottom:1px solid #d5dce2;padding:4px 3px;vertical-align:top}#report tr{break-inside:avoid}#report thead{display:table-header-group}#report .r{text-align:right;white-space:nowrap}
+#report .tot td{font-weight:700;border-top:1.5px solid #101c26}
 @page{size:A4;margin:14mm}
 @media print{body>*:not(#report){display:none!important}#report{display:block!important}body{background:#fff!important;color:#101c26!important}}
 </style></head>
@@ -301,12 +302,15 @@ function buildReport(){
   lab=p==='tank'&&seg?'bak '+dd(seg.a)+' → '+(seg.b?dd(seg.b):'trwa'):PL[p]||'całość',
   th=(a,n)=>'<thead><tr>'+a.map((x,i)=>`<th class="${i>=n?'r':''}">${x}</th>`).join('')+'</tr></thead>',
   row=(a,n)=>'<tr>'+a.map((x,i)=>`<td class="${i>=n?'r':''}">${x}</td>`).join('')+'</tr>';
+ const T0={n:S.length,d:0,f:0,iF:0,iD:0,e:0,ed:0,c:0};
+ S.forEach(x=>{T0.d+=x.t.dist;T0.f+=x.r.fuel||0;if(x.r.iceCons!=null){T0.iF+=x.r.fuel;T0.iD+=x.r.iceDist}if(x.t.evDist!=null&&x.t.dist>0){T0.e+=x.t.evDist;T0.ed+=x.t.dist}T0.c+=x.c||0});
+ const tot=(a,n)=>row(a,n).replace('<tr>','<tr class="tot">'),W=T0.d?T0.f/T0.d*100:null,Wi=T0.iD?T0.iF/T0.iD*100:null,Ev=T0.ed?T0.e/T0.ed*100:null,Co=T0.c?nf(T0.c,2):'—';
  let tbl;
  if(mo){
   const M={};S.forEach(x=>{const k=x.t.date.slice(0,7),m=M[k]||(M[k]={n:0,d:0,f:0,iF:0,iD:0,e:0,c:0});m.n++;m.d+=x.t.dist;m.f+=x.r.fuel||0;if(x.r.iceCons!=null){m.iF+=x.r.fuel;m.iD+=x.r.iceDist}m.e+=x.t.evDist||0;m.c+=x.c||0});
-  tbl=th(['Miesiąc','Przejazdy','km','Paliwo l','l/100 km','E95 l/100','EV %','Koszt zł'],1)+'<tbody>'+Object.keys(M).sort().map(k=>{const m=M[k];return row([k.slice(5)+'.'+k.slice(0,4),m.n,nf(m.d,0),nf(m.f,1),nf(m.d?m.f/m.d*100:null,2),nf(m.iD?m.iF/m.iD*100:null,2),nf(m.d?m.e/m.d*100:null,0),m.c?nf(m.c,2):'—'],1)}).join('')+'</tbody>';
+  tbl=th(['Miesiąc','Przejazdy','km','Paliwo l','l/100 km','E95 l/100','EV %','Koszt zł'],1)+'<tbody>'+Object.keys(M).sort().map(k=>{const m=M[k];return row([k.slice(5)+'.'+k.slice(0,4),m.n,nf(m.d,0),nf(m.f,1),nf(m.d?m.f/m.d*100:null,2),nf(m.iD?m.iF/m.iD*100:null,2),nf(m.d?m.e/m.d*100:null,0),m.c?nf(m.c,2):'—'],1)}).join('')+tot(['Razem',T0.n,nf(T0.d,0),nf(T0.f,1),nf(W,2),nf(Wi,2),nf(Ev,0),Co],1)+'</tbody>';
  }else{
-  tbl=th(['Data','Opis','km','l/100 km','E95 l/100','EV %','Koszt zł'],2)+'<tbody>'+[...S].sort((a,b)=>(a.t.date+(a.t.time||'')).localeCompare(b.t.date+(b.t.time||''))).map(({t,r,c})=>row([ds(t.date)+(t.time?' '+t.time:''),esc(t.note||''),nf(t.dist),nf(t.cons,1),nf(r.iceCons,1),t.dist?nf((t.evDist||0)/t.dist*100,0):'—',c!=null?nf(c,2):'—'],2)).join('')+'</tbody>';
+  tbl=th(['Data','Opis','km','l/100 km','E95 l/100','EV %','Koszt zł'],2)+'<tbody>'+[...S].sort((a,b)=>(a.t.date+(a.t.time||'')).localeCompare(b.t.date+(b.t.time||''))).map(({t,r,c})=>row([ds(t.date)+(t.time?' '+t.time:''),esc(t.note||''),nf(t.dist),nf(t.cons,1),nf(r.iceCons,1),t.dist?nf((t.evDist||0)/t.dist*100,0):'—',c!=null?nf(c,2):'—'],2)).join('')+tot(['Razem',T0.n+' przejazdów',nf(T0.d),nf(W,1),nf(Wi,1),nf(Ev,0),Co],2)+'</tbody>';
  }
  $('#report').innerHTML=`<h1>Raport spalania: ${lab}</h1><div class="mute">${ds(D[0])} – ${ds(D[D.length-1])} · wygenerowano ${new Date().toLocaleDateString('pl-PL')} · dane z MyToyota</div><h2>Podsumowanie</h2>${$('#sum').innerHTML}<h2>Wykresy</h2><div id="rTr"></div><h2>${mo?'Zestawienie miesięczne':'Przejazdy'}</h2><table>${tbl}</table>`;
  renderTrends(S.map(x=>x.t),$('#rTr'),true);
