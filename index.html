@@ -88,6 +88,11 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
  <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div><button class="btn" id="rptBtn" style="width:100%;margin-top:14px" hidden>Eksport PDF (raport z tego filtra)</button></section>
 <section class="card"><h2>Trendy</h2><div id="trends"></div></section>
 <section class="card"><h2>Moje trasy</h2><div id="routes"></div></section>
+<section class="card"><h2>Temperatura</h2>
+<p class="mute" style="margin:0 0 10px">Temperatura jest pobierana z darmowego serwisu Open-Meteo dla jednego miasta. Serwis dostaje tylko datę, godzinę i współrzędne miasta, bez opisów tras.</p>
+<label class="f">Miasto<input id="locIn" type="text" placeholder="wpisz nazwę miasta"></label>
+<div class="row"><button class="btn" id="locSave">Ustaw miasto</button><button class="btn" id="tempFill">Uzupełnij zapisane</button></div>
+<p class="mute" id="locInfo"></p><div id="tempTbl"></div></section>
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Tankowania</h2>
  <p class="mute" style="margin:-6px 0 10px">Przejazd dostaje cenę paliwa z ostatniego tankowania przed nim.</p>
@@ -112,7 +117,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" defer></script>
 <script>
 const $=s=>document.querySelector(s);
-const FD=[['date','Data','date'],['dur','Czas jazdy (min)'],['dist','Dystans (km)'],['speed','Śr. prędkość (km/h)'],['cons','Zużycie (l/100 km)'],['evPct','Użycie EV (%)'],['evMin','Czas w EV (min)'],['evDist','Dystans w EV (km)']];
+const FD=[['date','Data','date'],['dur','Czas jazdy (min)'],['dist','Dystans (km)'],['speed','Śr. prędkość (km/h)'],['cons','Zużycie (l/100 km)'],['evPct','Użycie EV (%)'],['evMin','Czas w EV (min)'],['evDist','Dystans w EV (km)'],['temp','Temperatura °C (puste: pobierze się przy zapisie)','text']];
 $('#fields').innerHTML=FD.map(([k,l,t])=>`<label class="f">${l}<input id="f_${k}" ${t?`type="${t}"`:'inputmode="decimal"'}></label>`).join('').replace('</label>','</label><label class="f">Godzina<input id="f_time" type="time"></label>');
 const nf=(v,d=1)=>v==null||!isFinite(v)?'—':v.toLocaleString('pl-PL',{minimumFractionDigits:d,maximumFractionDigits:d});
 const num=v=>{const n=parseFloat(String(v??'').replace(',','.'));return isFinite(n)?n:null};
@@ -193,13 +198,14 @@ $('#file').onchange=async e=>{
   const t=parse(await ocr(f));
   $('#th').src=URL.createObjectURL(f);$('#th').hidden=false;
   show(t,true);
-  st(FD.slice(1).filter(([k])=>t[k]==null).length>=5?'Nie rozpoznano większości pól. Uzupełnij je ręcznie.':'');
+  st(FD.slice(1).filter(([k])=>k!=='temp'&&t[k]==null).length>=5?'Nie rozpoznano większości pól. Uzupełnij je ręcznie.':'');
  }catch(err){st(err.message)}
 };
 $('#save').onclick=async()=>{
  const t=rd();
  if(!t.date||t.dist==null||t.cons==null)return alert('Uzupełnij co najmniej datę, dystans i zużycie paliwa.');
  if(editId==null&&(await all()).some(x=>key(x)===key(t))&&!confirm('Taki przejazd jest już zapisany. Dodać mimo to?'))return;
+ if(t.temp==null)t.temp=await tempFor(t);
  if(editId!=null){t.id=editId;t.createdAt=editCreated;await put(t)}else{t.createdAt=Date.now();await add(t)}
  if(!inP(t.date))period='all';
  editId=null;$('#form').hidden=true;st('');render();
@@ -263,6 +269,39 @@ function inP(d){
 $('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.dataset.p;render()}};
 $('#tankSel').onchange=e=>{tankKey=e.target.value;render()};
 /*FILTER-END*/
+/*TEMP-START*/
+const LOC_K='przejazdy_loc',getLoc=()=>{try{return JSON.parse(localStorage.getItem(LOC_K)||'null')}catch{return null}},hr=t=>t.date+'T'+(t.time||'12:00').slice(0,2),iso=ms=>new Date(ms).toLocaleDateString('sv-SE');
+async function fetchTemps(L,d1,d2){
+ const cut=iso(Date.now()-80*864e5),out={},parts=[];
+ if(d1<cut)parts.push(['https://archive-api.open-meteo.com/v1/archive',d1,d2<cut?d2:iso(Date.parse(cut+'T12:00')-864e5)]);
+ if(d2>=cut)parts.push(['https://api.open-meteo.com/v1/forecast',d1>cut?d1:cut,d2]);
+ for(const[u,a,b]of parts){
+  const c=new AbortController(),tm=setTimeout(()=>c.abort(),8000);
+  try{const r=await fetch(`${u}?latitude=${L.lat}&longitude=${L.lon}&hourly=temperature_2m&timezone=auto&`+(u.includes('archive')?`start_date=${a}&end_date=${b}`:'past_days=92&forecast_days=1'),{signal:c.signal});if(!r.ok)throw new Error('http');const j=await r.json();j.hourly.time.forEach((s,i)=>{const v=j.hourly.temperature_2m[i];if(v!=null)out[s.slice(0,13)]=v})}finally{clearTimeout(tm)}
+ }
+ return out;
+}
+async function tempFor(t){const L=getLoc();if(!L||!t.date)return null;try{const v=(await fetchTemps(L,t.date,t.date))[hr(t)];return v==null?null:Math.round(v*10)/10}catch{return null}}
+function renderTemp(ALL){
+ const L=getLoc();$('#locInfo').textContent=L?`Miasto: ${L.name}.`:'Miasto nie jest ustawione, więc temperatura nie jest pobierana.';
+ const bins=[['poniżej 0 °C',-1e9,0],['0 do 5 °C',0,5],['5 do 10 °C',5,10],['10 do 15 °C',10,15],['15 do 20 °C',15,20],['20 °C i więcej',20,1e9]],
+  T=ALL.filter(t=>t.temp!=null&&t.dist>0).map(t=>({t,r:calc(t)}));
+ const rows=bins.map(([l,a,b])=>{const x=T.filter(({t})=>t.temp>=a&&t.temp<b);if(!x.length)return'';const D=x.reduce((q,y)=>q+y.t.dist,0),fx=x.filter(y=>y.r.fuel!=null),F=fx.reduce((q,y)=>q+y.r.fuel,0),Fd=fx.reduce((q,y)=>q+y.t.dist,0),E=x.reduce((q,y)=>q+(y.t.evDist||0),0);return`<tr><td>${l}</td><td class="r">${x.length}</td><td class="r">${nf(D,0)}</td><td class="r">${Fd?nf(F/Fd*100,1):'—'}</td><td class="r">${nf(E/D*100,0)}</td></tr>`}).join('');
+ $('#tempTbl').innerHTML=rows?`<table class="rt"><thead><tr><th>Temperatura</th><th class="r">Przejazdy</th><th class="r">km</th><th class="r">l/100</th><th class="r">EV %</th></tr></thead><tbody>${rows}</tbody></table><p class="mute" style="margin:8px 0 0">Temperatura z ${T.length} z ${ALL.length} przejazdów. Różnice zależą też od długości tras, więc porównuj ostrożnie.</p>`:'<p class="mute">Brak przejazdów z temperaturą. Ustaw miasto i dotknij „Uzupełnij zapisane”.</p>';
+}
+$('#locSave').onclick=async()=>{
+ const q=$('#locIn').value.trim();if(!q)return alert('Wpisz nazwę miasta.');
+ try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=1&language=pl&format=json'),j=await r.json(),p=j.results&&j.results[0];if(!p)return alert('Nie znaleziono takiego miasta.');
+  localStorage.setItem(LOC_K,JSON.stringify({name:p.name+(p.country?', '+p.country:''),lat:p.latitude,lon:p.longitude}));render()}catch{alert('Nie udało się ustawić miasta. Sprawdź połączenie z internetem.')}
+};
+$('#tempFill').onclick=async()=>{
+ const L=getLoc();if(!L)return alert('Najpierw ustaw miasto.');
+ const A=(await all()).filter(t=>t.temp==null&&t.date);if(!A.length)return alert('Wszystkie przejazdy mają już temperaturę.');
+ try{const D=A.map(t=>t.date).sort(),m=await fetchTemps(L,D[0],D[D.length-1]);let n=0;
+  for(const t of A){const v=m[hr(t)];if(v!=null){t.temp=Math.round(v*10)/10;await put(t);n++}}
+  alert(`Uzupełniono temperaturę: ${n} z ${A.length} przejazdów.`);render()}catch{alert('Nie udało się pobrać temperatur. Sprawdź połączenie z internetem.')}
+};
+/*TEMP-END*/
 /*TRENDS-START*/
 let RPT=null;
 const wk=d=>{const x=new Date(d+'T12:00');x.setDate(x.getDate()-(x.getDay()+6)%7);return x.toLocaleDateString('sv-SE')},sd=d=>d.slice(8,10)+'.'+d.slice(5,7);
@@ -356,6 +395,7 @@ async function render(){
  try{renderBk(ALL.length+FUEL.length)}catch(e){}
  try{renderHome(ALL)}catch(e){}
  try{renderRoutes(ALL)}catch(e){}
+ try{renderTemp(ALL)}catch(e){}
  const SG=segs(FUEL).reverse();let seg=null;
  if(period==='tank'){seg=SG.find(x=>fk(x.a)===tankKey)||SG.find(x=>x.b)||SG[0]||null;if(seg)tankKey=fk(seg.a);L=seg?L.filter(t=>{const k=tk(t);return k>=seg.s&&k<seg.e}):[]}
  $('#tankSel').hidden=!(period==='tank'&&SG.length);
@@ -398,8 +438,8 @@ $('#list').onclick=async e=>{
 const dl=(name,data,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
 $('#eJ').onclick=async()=>dl(`przejazdy-${stamp()}.json`,JSON.stringify({app:'przejazdy',version:2,trips:(await all()).map(({id,...t})=>t),fuel:(await allF()).map(({id,...f})=>f)},null,1),'application/json');
 const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())};
-const HEAD=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Cena paliwa [zł/l]','Koszt paliwa [zł]','Trasa / komentarz'];
-const table=async()=>{const F=await loadFuel();return(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t),p=priceFor(t.date,t.time,F);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons,p?p.price:null,p&&r.fuel!=null?r.fuel*p.price:null,String(t.note||'').replace(/\s+/g,' ')].map(v=>typeof v==='number'?Math.round(v*1000)/1000:v)})};
+const HEAD=['Data','Godzina','Czas jazdy [min]','Dystans [km]','Śr. prędkość [km/h]','Zużycie [l/100km]','Użycie EV [%]','Czas EV [min]','Dystans EV [km]','Spalone paliwo [l]','Dystans spalina [km]','Czas spalina [min]','Realne spalanie spalina [l/100km]','Cena paliwa [zł/l]','Koszt paliwa [zł]','Trasa / komentarz','Temperatura [°C]'];
+const table=async()=>{const F=await loadFuel();return(await all()).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(t=>{const r=calc(t),p=priceFor(t.date,t.time,F);return[t.date,t.time,t.dur,t.dist,t.speed,t.cons,t.evPct,t.evMin,t.evDist,r.fuel,r.iceDist,r.iceMin,r.iceCons,p?p.price:null,p&&r.fuel!=null?r.fuel*p.price:null,String(t.note||'').replace(/\s+/g,' '),t.temp??null].map(v=>typeof v==='number'?Math.round(v*1000)/1000:v)})};
 /*BACKUP-START*/
 const BK='przejazdy_lastBackup',bkTs=()=>{try{return+localStorage.getItem(BK)||0}catch{return 0}};
 const dump=async()=>JSON.stringify({app:'przejazdy',version:2,trips:(await all()).map(({id,...t})=>t),fuel:(await allF()).map(({id,...f})=>f)},null,1);
