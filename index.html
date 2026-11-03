@@ -383,6 +383,10 @@ function renderBk(n){
 function mark(){try{localStorage.setItem(BK,Date.now())}catch{}renderBk(1)}
 async function saveCopy(){
  const name=`przejazdy-${stamp()}.json`,txt=await dump();
+ if(window.showSaveFilePicker){
+  try{const h=await showSaveFilePicker({suggestedName:name,types:[{description:'Kopia JSON',accept:{'application/json':['.json']}}]}),w=await h.createWritable();await w.write(txt);await w.close();mark();return}
+  catch(e){if(e.name==='AbortError')return}
+ }
  for(const type of['application/json','text/plain']){
   const file=new File([txt],name,{type});
   try{if(navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:name});mark();return}}
