@@ -51,6 +51,11 @@ input{width:100%;min-height:44px;margin-top:4px;padding:0 10px;border:1px solid 
 .seg{flex-wrap:wrap}.seg button[data-p=tank]{flex:1 1 100%}
 select{width:100%;min-height:48px;margin-bottom:14px;padding:0 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font-size:16px;font-family:inherit}
 select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
+#report{color:#101c26;--bg:#fff;--card:#fff;--ink:#101c26;--mute:#5b6b78;--line:#d5dce2;--acc:#d4101f;--ev:#0b8a7a;--org:#e0690c;--warn:#7a4300;--wbg:#fff0d0}
+#report h1{font-size:22px;margin:0 0 2px}#report h2{font-size:15px;margin:18px 0 6px}
+#report table{width:100%;border-collapse:collapse;font-size:11px}#report th{text-align:left;color:#5b6b78;font-weight:600;border-bottom:1.5px solid #101c26;padding:4px 3px}#report td{border-bottom:1px solid #d5dce2;padding:4px 3px;vertical-align:top}#report tr{break-inside:avoid}#report thead{display:table-header-group}#report .r{text-align:right;white-space:nowrap}
+@page{size:A4;margin:14mm}
+@media print{body>*:not(#report){display:none!important}#report{display:block!important}body{background:#fff!important;color:#101c26!important}}
 </style></head>
 <body><main>
 <h1>Dziennik przejazdów</h1>
@@ -77,7 +82,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 
 <section class="card"><h2 id="sh">Podsumowanie archiwum</h2>
  <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button><button data-p="tank">Bak: od tankowania do tankowania</button></div>
- <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div></section>
+ <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div><button class="btn" id="rptBtn" style="width:100%;margin-top:14px" hidden>Eksport PDF (raport z tego filtra)</button></section>
 <section class="card"><h2>Trendy</h2><div id="trends"></div></section>
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 <section class="card"><h2>Tankowania</h2>
@@ -99,6 +104,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
  <p class="mute">Dane leżą w pamięci przeglądarki i znikną, jeśli wyczyścisz dane Chrome. Zapisuj kopię na Dysk Google co jakiś czas. Wczytasz ją przyciskiem Import JSON, który scala dane i niczego nie kasuje.</p>
 </section>
 </main>
+<div id="report" hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" defer></script>
 <script>
 const $=s=>document.querySelector(s);
@@ -254,6 +260,7 @@ $('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.datase
 $('#tankSel').onchange=e=>{tankKey=e.target.value;render()};
 /*FILTER-END*/
 /*TRENDS-START*/
+let RPT=null;
 const wk=d=>{const x=new Date(d+'T12:00');x.setDate(x.getDate()-(x.getDay()+6)%7);return x.toLocaleDateString('sv-SE')},sd=d=>d.slice(8,10)+'.'+d.slice(5,7);
 function chart(ser,lab,dec){
  const W=300,H=150,PL=34,PR=8,PT=10,PB=22,vs=ser.flatMap(s=>s.v).filter(v=>v!=null);
@@ -268,8 +275,8 @@ function chart(ser,lab,dec){
  const leg=ser.map(s=>{const l=[...s.v].reverse().find(v=>v!=null);return`<span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.c};margin-right:5px"></i>${s.n}: <b style="color:var(--ink)">${nf(l,dec)}</b></span>`}).join('');
  return`<div class="mute" style="display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 6px">${leg}</div><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Wykres: ${esc(ser.map(s=>s.n).join(', '))}" style="display:block">${g}</svg>`;
 }
-function renderTrends(ALL){
- const el=$('#trends'),h3=t=>`<h3 style="font-size:15px;margin:18px 0 0">${t}</h3>`,note=t=>`<p class="mute" style="margin:6px 0 0">${t}</p>`;
+function renderTrends(ALL,tgt,noBak){
+ const el=tgt||$('#trends'),h3=t=>`<h3 style="font-size:15px;margin:18px 0 0">${t}</h3>`,note=t=>`<p class="mute" style="margin:6px 0 0">${t}</p>`;
  const T=ALL.filter(t=>t.dist>0).map(t=>({t,r:calc(t)}));
  if(!T.length){el.innerHTML=note('Wykresy pojawią się po wczytaniu pierwszych przejazdów.');return}
  const W={};
@@ -279,15 +286,34 @@ function renderTrends(ALL){
  const ks=Object.keys(W).sort().slice(-26),lab=ks.map(sd),cs=g=>g[1]>0?g[0]/g[1]*100:null;
  let h=h3('Spalanie tydzień po tygodniu (l/100 km)')+chart([{n:'Miasto (do 12 km)',c:'var(--org)',v:ks.map(k=>cs(W[k].c))},{n:'Trasa (powyżej 12 km)',c:'var(--ev)',v:ks.map(k=>cs(W[k].t))}],lab,1)+note('Miasto i trasa osobno, bo długie trasy zaniżają średnią. Punkt to poniedziałek danego tygodnia.');
  h+=h3('Udział trybu EV w dystansie (%)')+chart([{n:'EV',c:'var(--ev)',v:ks.map(k=>W[k].d>0?W[k].e/W[k].d*100:null)}],lab,0);
- const bk=[];
+ const bk=[];if(!noBak){
  segs(FUEL).forEach(({a,b,s,e})=>{
   if(!b||!(b.litres>0)||!(a.odo>0)||!(b.odo>a.odo))return;
   const tt=T.filter(({t,r})=>{const k=tk(t);return k>=s&&k<e&&r.fuel!=null}),D=tt.reduce((q,x)=>q+x.t.dist,0),F=tt.reduce((q,x)=>q+x.r.fuel,0);
   bk.push({l:sd(b.date),fu:b.litres/(b.odo-a.odo)*100,my:D>0?F/D*100:null})});
  h+=h3('Spalanie na bak (l/100 km)');
  h+=bk.length?chart([{n:'Z tankowania (jak Fuelio)',c:'var(--acc)',v:bk.map(x=>x.fu)},{n:'Wg MyToyota',c:'var(--mute)',v:bk.map(x=>x.my)}],bk.map(x=>x.l),2)+note('Punkt to data tankowania zamykającego bak.'):note('Ten wykres pojawi się po drugim tankowaniu, gdy znane są litry i przebieg licznika na obu.');
+ }
  el.innerHTML=h;
 }
+function buildReport(){
+ const{S,seg,period:p}=RPT,ds=d=>new Date(d+'T12:00').toLocaleDateString('pl-PL'),D=S.map(x=>x.t.date).sort(),mo=p==='year'||p==='all',
+  lab=p==='tank'&&seg?'bak '+dd(seg.a)+' → '+(seg.b?dd(seg.b):'trwa'):PL[p]||'całość',
+  th=(a,n)=>'<thead><tr>'+a.map((x,i)=>`<th class="${i>=n?'r':''}">${x}</th>`).join('')+'</tr></thead>',
+  row=(a,n)=>'<tr>'+a.map((x,i)=>`<td class="${i>=n?'r':''}">${x}</td>`).join('')+'</tr>';
+ let tbl;
+ if(mo){
+  const M={};S.forEach(x=>{const k=x.t.date.slice(0,7),m=M[k]||(M[k]={n:0,d:0,f:0,iF:0,iD:0,e:0,c:0});m.n++;m.d+=x.t.dist;m.f+=x.r.fuel||0;if(x.r.iceCons!=null){m.iF+=x.r.fuel;m.iD+=x.r.iceDist}m.e+=x.t.evDist||0;m.c+=x.c||0});
+  tbl=th(['Miesiąc','Przejazdy','km','Paliwo l','l/100 km','E95 l/100','EV %','Koszt zł'],1)+'<tbody>'+Object.keys(M).sort().map(k=>{const m=M[k];return row([k.slice(5)+'.'+k.slice(0,4),m.n,nf(m.d,0),nf(m.f,1),nf(m.d?m.f/m.d*100:null,2),nf(m.iD?m.iF/m.iD*100:null,2),nf(m.d?m.e/m.d*100:null,0),m.c?nf(m.c,2):'—'],1)}).join('')+'</tbody>';
+ }else{
+  tbl=th(['Data','Opis','km','l/100 km','E95 l/100','EV %','Koszt zł'],2)+'<tbody>'+[...S].sort((a,b)=>(a.t.date+(a.t.time||'')).localeCompare(b.t.date+(b.t.time||''))).map(({t,r,c})=>row([ds(t.date)+(t.time?' '+t.time:''),esc(t.note||''),nf(t.dist),nf(t.cons,1),nf(r.iceCons,1),t.dist?nf((t.evDist||0)/t.dist*100,0):'—',c!=null?nf(c,2):'—'],2)).join('')+'</tbody>';
+ }
+ $('#report').innerHTML=`<h1>Raport spalania: ${lab}</h1><div class="mute">${ds(D[0])} – ${ds(D[D.length-1])} · wygenerowano ${new Date().toLocaleDateString('pl-PL')} · dane z MyToyota</div><h2>Podsumowanie</h2>${$('#sum').innerHTML}<h2>Wykresy</h2><div id="rTr"></div><h2>${mo?'Zestawienie miesięczne':'Przejazdy'}</h2><table>${tbl}</table>`;
+ renderTrends(S.map(x=>x.t),$('#rTr'),true);
+ document.title='Raport spalania - '+lab;
+}
+$('#rptBtn').onclick=()=>{buildReport();setTimeout(()=>print(),80)};
+addEventListener('afterprint',()=>{$('#report').innerHTML='';document.title='Dziennik przejazdów'});
 /*TRENDS-END*/
 async function render(){
  let L=[];
@@ -311,6 +337,7 @@ async function render(){
  const costRows=cs.length?kv('Koszt paliwa łącznie',nf(cC,2)+' zł')+kv('Koszt na 100 km',nf(cD?cC/cD*100:null,2)+' zł')+kv('Średnia cena litra',nf(cF?cC/cF:null,2)+' zł')+(ne?`<p class="mute" style="margin:8px 0 0">Dla ${ne} przejazdów sprzed pierwszego tankowania użyto jego ceny (szacunek).</p>`:''):'';
  const fuel=sm(x=>x.r.fuel),dist=sm(x=>x.t.dist),ok=S.filter(x=>x.r.iceCons!=null);
  const iF=ok.reduce((a,x)=>a+x.r.fuel,0),iD=ok.reduce((a,x)=>a+x.r.iceDist,0);
+ RPT={S,seg,period};$('#rptBtn').hidden=!S.length;
  const tankRows=(()=>{
   if(!seg)return'';
   const{a,b}=seg,lit=b&&b.litres>0?b.litres:null,od=b&&a.odo>0&&b.odo>a.odo?b.odo-a.odo:null,n=t=>`<p class="mute" style="margin:8px 0 0">${t}</p>`;
