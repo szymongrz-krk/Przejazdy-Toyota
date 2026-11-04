@@ -56,6 +56,8 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 #report table{width:100%;border-collapse:collapse;font-size:11px}#report th{text-align:left;color:#5b6b78;font-weight:600;border-bottom:1.5px solid #101c26;padding:4px 3px}#report td{border-bottom:1px solid #d5dce2;padding:4px 3px;vertical-align:top}#report tr{break-inside:avoid}#report thead{display:table-header-group}#report .r{text-align:right;white-space:nowrap}
 .rt{width:100%;border-collapse:collapse;font-size:13px}.rt th{text-align:left;color:var(--mute);font-weight:600;padding:4px 2px}.rt td{padding:7px 2px;border-top:1px solid var(--line)}.rt .r{text-align:right;white-space:nowrap;padding-left:6px}
 #report .tot td{font-weight:700;border-top:1.5px solid #101c26}
+.tc{display:inline-block;margin-left:8px;padding:1px 9px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:0;vertical-align:1px;white-space:nowrap}
+.tc.cold{background:#2f6fe4;color:#fff}.tc.cool{background:#f2f4f6;color:#101c26;box-shadow:inset 0 0 0 1px #c3ccd3}.tc.warm{background:#f4c20d;color:#3a2c00}.tc.hot{background:#d4101f;color:#fff}
 @page{size:A4;margin:14mm}
 @media print{body>*:not(#report){display:none!important}#report{display:block!important}body{background:#fff!important;color:#101c26!important}}
 </style></head>
@@ -282,6 +284,7 @@ async function fetchTemps(L,d1,d2){
  return out;
 }
 async function tempFor(t){const L=getLoc();if(!L||!t.date)return null;try{const v=(await fetchTemps(L,t.date,t.date))[hr(t)];return v==null?null:Math.round(v*10)/10}catch{return null}}
+const tmp=v=>v==null?'':`<b class="tc ${v<0?'cold':v<10?'cool':v<=25?'warm':'hot'}">${nf(v,1)} °C</b>`;
 function renderTemp(ALL){
  const L=getLoc();$('#locInfo').textContent=L?`Miasto: ${L.name}.`:'Miasto nie jest ustawione, więc temperatura nie jest pobierana.';
  const bins=[['poniżej 0 °C',-1e9,0],['0 do 5 °C',0,5],['5 do 10 °C',5,10],['10 do 15 °C',10,15],['15 do 20 °C',15,20],['20 °C i więcej',20,1e9]],
@@ -368,17 +371,17 @@ function buildReport(){
   lab=p==='tank'&&seg?'bak '+dd(seg.a)+' → '+(seg.b?dd(seg.b):'trwa'):PL[p]||'całość',
   th=(a,n)=>'<thead><tr>'+a.map((x,i)=>`<th class="${i>=n?'r':''}">${x}</th>`).join('')+'</tr></thead>',
   row=(a,n)=>'<tr>'+a.map((x,i)=>`<td class="${i>=n?'r':''}">${x}</td>`).join('')+'</tr>';
- const T0={n:S.length,d:0,f:0,iF:0,iD:0,e:0,ed:0,c:0};
- S.forEach(x=>{T0.d+=x.t.dist;T0.f+=x.r.fuel||0;if(x.r.iceCons!=null){T0.iF+=x.r.fuel;T0.iD+=x.r.iceDist}if(x.t.evDist!=null&&x.t.dist>0){T0.e+=x.t.evDist;T0.ed+=x.t.dist}T0.c+=x.c||0});
- const tot=(a,n)=>row(a,n).replace('<tr>','<tr class="tot">'),W=T0.d?T0.f/T0.d*100:null,Wi=T0.iD?T0.iF/T0.iD*100:null,Ev=T0.ed?T0.e/T0.ed*100:null,Co=T0.c?nf(T0.c,2):'—';
+ const T0={n:S.length,d:0,f:0,iF:0,iD:0,e:0,ed:0,c:0,tw:0,td:0};
+ S.forEach(x=>{T0.d+=x.t.dist;T0.f+=x.r.fuel||0;if(x.r.iceCons!=null){T0.iF+=x.r.fuel;T0.iD+=x.r.iceDist}if(x.t.evDist!=null&&x.t.dist>0){T0.e+=x.t.evDist;T0.ed+=x.t.dist}T0.c+=x.c||0;if(x.t.temp!=null){T0.tw+=x.t.temp*x.t.dist;T0.td+=x.t.dist}});
+ const tot=(a,n)=>row(a,n).replace('<tr>','<tr class="tot">'),W=T0.d?T0.f/T0.d*100:null,Wi=T0.iD?T0.iF/T0.iD*100:null,Ev=T0.ed?T0.e/T0.ed*100:null,Co=T0.c?nf(T0.c,2):'—',Tm=T0.td?T0.tw/T0.td:null;
  let tbl;
  if(mo){
-  const M={};S.forEach(x=>{const k=x.t.date.slice(0,7),m=M[k]||(M[k]={n:0,d:0,f:0,iF:0,iD:0,e:0,c:0});m.n++;m.d+=x.t.dist;m.f+=x.r.fuel||0;if(x.r.iceCons!=null){m.iF+=x.r.fuel;m.iD+=x.r.iceDist}m.e+=x.t.evDist||0;m.c+=x.c||0});
-  tbl=th(['Miesiąc','Przejazdy','km','Paliwo l','l/100 km','E95 l/100','EV %','Koszt zł'],1)+'<tbody>'+Object.keys(M).sort().map(k=>{const m=M[k];return row([k.slice(5)+'.'+k.slice(0,4),m.n,nf(m.d,0),nf(m.f,1),nf(m.d?m.f/m.d*100:null,2),nf(m.iD?m.iF/m.iD*100:null,2),nf(m.d?m.e/m.d*100:null,0),m.c?nf(m.c,2):'—'],1)}).join('')+tot(['Razem',T0.n,nf(T0.d,0),nf(T0.f,1),nf(W,2),nf(Wi,2),nf(Ev,0),Co],1)+'</tbody>';
+  const M={};S.forEach(x=>{const k=x.t.date.slice(0,7),m=M[k]||(M[k]={n:0,d:0,f:0,iF:0,iD:0,e:0,c:0,tw:0,td:0});if(x.t.temp!=null){m.tw+=x.t.temp*x.t.dist;m.td+=x.t.dist}m.n++;m.d+=x.t.dist;m.f+=x.r.fuel||0;if(x.r.iceCons!=null){m.iF+=x.r.fuel;m.iD+=x.r.iceDist}m.e+=x.t.evDist||0;m.c+=x.c||0});
+  tbl=th(['Miesiąc','Przejazdy','km','Paliwo l','l/100 km','E95 l/100','EV %','Śr. temp. °C','Koszt zł'],1)+'<tbody>'+Object.keys(M).sort().map(k=>{const m=M[k];return row([k.slice(5)+'.'+k.slice(0,4),m.n,nf(m.d,0),nf(m.f,1),nf(m.d?m.f/m.d*100:null,2),nf(m.iD?m.iF/m.iD*100:null,2),nf(m.d?m.e/m.d*100:null,0),nf(m.td?m.tw/m.td:null,1),m.c?nf(m.c,2):'—'],1)}).join('')+tot(['Razem',T0.n,nf(T0.d,0),nf(T0.f,1),nf(W,2),nf(Wi,2),nf(Ev,0),nf(Tm,1),Co],1)+'</tbody>';
  }else{
-  tbl=th(['Data','Opis','km','l/100 km','E95 l/100','EV %','Koszt zł'],2)+'<tbody>'+[...S].sort((a,b)=>(a.t.date+(a.t.time||'')).localeCompare(b.t.date+(b.t.time||''))).map(({t,r,c})=>row([ds(t.date)+(t.time?' '+t.time:''),esc(t.note||''),nf(t.dist),nf(t.cons,1),nf(r.iceCons,1),t.dist?nf((t.evDist||0)/t.dist*100,0):'—',c!=null?nf(c,2):'—'],2)).join('')+tot(['Razem',T0.n+' przejazdów',nf(T0.d),nf(W,1),nf(Wi,1),nf(Ev,0),Co],2)+'</tbody>';
+  tbl=th(['Data','Opis','km','l/100 km','E95 l/100','EV %','Temp. °C','Koszt zł'],2)+'<tbody>'+[...S].sort((a,b)=>(a.t.date+(a.t.time||'')).localeCompare(b.t.date+(b.t.time||''))).map(({t,r,c})=>row([ds(t.date)+(t.time?' '+t.time:''),esc(t.note||''),nf(t.dist),nf(t.cons,1),nf(r.iceCons,1),t.dist?nf((t.evDist||0)/t.dist*100,0):'—',t.temp!=null?nf(t.temp,1):'—',c!=null?nf(c,2):'—'],2)).join('')+tot(['Razem',T0.n+' przejazdów',nf(T0.d),nf(W,1),nf(Wi,1),nf(Ev,0),nf(Tm,1),Co],2)+'</tbody>';
  }
- $('#report').innerHTML=`<h1>Raport spalania: ${lab}</h1><div class="mute">${ds(D[0])} – ${ds(D[D.length-1])} · wygenerowano ${new Date().toLocaleDateString('pl-PL')} · dane z MyToyota</div><h2>Podsumowanie</h2>${$('#sum').innerHTML}<h2>Wykresy</h2><div id="rTr"></div><h2>${mo?'Zestawienie miesięczne':'Przejazdy'}</h2><table>${tbl}</table>`;
+ $('#report').innerHTML=`<h1>Raport spalania: ${lab}</h1><div class="mute">${ds(D[0])} – ${ds(D[D.length-1])} · wygenerowano ${new Date().toLocaleDateString('pl-PL')} · dane z MyToyota</div><h2>Podsumowanie</h2>${$('#sum').innerHTML}<h2>Wykresy</h2><div id="rTr"></div><h2>${mo?'Zestawienie miesięczne':'Przejazdy'}</h2><table>${tbl}</table>${T0.td?'<p class="mute" style="margin:6px 0 0">Temperatura w wierszu „Razem” jest średnią ważoną dystansem.</p>':''}`;
  renderTrends(S.map(x=>x.t),$('#rTr'),true);
  document.title='Raport spalania - '+lab;
 }
@@ -426,7 +429,7 @@ async function render(){
   kv('Liczba przejazdów',S.length)+kv('Łączny dystans',nf(dist)+' km')+kv('Spalone paliwo',nf(fuel)+' l')+costRows+tankRows
   :`<p class="mute">${period==='tank'&&!SG.length?'Dodaj tankowanie, a zobaczysz przejazdy z jednego baku.':total?'Brak przejazdów w wybranym okresie.':'Brak zapisanych przejazdów. Wczytaj pierwszy zrzut ekranu.'}</p>${!total&&!FUEL.length?'<label class="btn" for="imp">Masz kopię? Wczytaj ją z Dysku</label>':''}`;
  const tb=v=>{if(v==null)return'';const e=Math.round(Math.max(0,Math.min(100,v)));return`<span class="bar"><i style="width:${e}%"></i></span><span class="cap"><em class="ev">EV ${e}% czasu</em><em class="ice">E95 ${100-e}%</em></span>`};
- $('#list').innerHTML=S.length?S.map(({t,r,p,c})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span>${p?`<span class="mute">Koszt <b style="color:var(--ink)">${nf(c,2)} zł</b>${p.est?' (szac.)':''}, ${t.cons!=null?nf(t.cons*p.price,2):'—'} zł/100 km, ${nf(p.price,2)} zł/l</span>`:''}<span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Historia jest pusta.'}</p>`;
+ $('#list').innerHTML=S.length?S.map(({t,r,p,c})=>`<div class="trip"><button class="open" data-open="${t.id}"><span class="n">${nf(r.iceCons)} <small class="mute" style="font-weight:500;letter-spacing:0">l/100 km na E95</small></span><span>${new Date(t.date+'T12:00').toLocaleDateString('pl-PL',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}${t.time?', '+t.time:''}${tmp(t.temp)}</span>${t.note?`<span style="font-weight:600">${esc(t.note)}</span>`:''}<span class="mute"><b class="y">${nf(t.dist)} km</b> w <b class="y">${nf(t.dur,0)} min</b>, łącznie <b class="y">${nf(t.cons)} l/100 km</b></span>${p?`<span class="mute">Koszt <b style="color:var(--ink)">${nf(c,2)} zł</b>${p.est?' (szac.)':''}, ${t.cons!=null?nf(t.cons*p.price,2):'—'} zł/100 km, ${nf(p.price,2)} zł/l</span>`:''}<span class="g mute"><em class="l ev">EV</em><em>${nf(t.evDist)} km</em><em>${nf(t.evMin,0)} min</em><em>${nf(r.evSpeed,0)} km/h</em><em class="l ice">E95</em><em>${nf(r.iceDist)} km</em><em>${nf(r.iceMin,0)} min</em><em>${nf(r.iceSpeed,0)} km/h</em></span>${tb(r.evTime)}</button><button class="btn x" data-del="${t.id}" aria-label="Usuń przejazd">✕</button></div>`).join(''):`<p class="mute">${total?'Brak przejazdów w wybranym okresie.':'Historia jest pusta.'}</p>`;
 }
 $('#list').onclick=async e=>{
  const d=e.target.closest('[data-del]'),o=e.target.closest('[data-open]');
