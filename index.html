@@ -58,10 +58,14 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 #report .tot td{font-weight:700;border-top:1.5px solid #101c26}
 .tc{display:inline-block;margin-left:8px;padding:1px 9px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:0;vertical-align:1px;white-space:nowrap}
 .tc.cold{background:#2f6fe4;color:#fff}.tc.cool{background:#f2f4f6;color:#101c26;box-shadow:inset 0 0 0 1px #c3ccd3}.tc.warm{background:#f4c20d;color:#3a2c00}.tc.hot{background:#d4101f;color:#fff}
+.tabs{position:sticky;top:0;z-index:5;display:flex;gap:6px;margin:0 -16px 8px;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+.tabs button{flex:1;min-height:44px;border:0;border-radius:12px;background:transparent;color:var(--mute);font:inherit;font-weight:700;cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--acc)}
+.tabs button:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 @page{size:A4;margin:14mm}
 @media print{body>*:not(#report){display:none!important}#report{display:block!important}body{background:#fff!important;color:#101c26!important}}
 </style></head>
-<body><main>
+<body><main><nav class="tabs" role="tablist" aria-label="Widok"><button role="tab" data-tab="p" aria-selected="true">Przejazdy</button><button role="tab" data-tab="a" aria-selected="false">Analiza</button><button role="tab" data-tab="d" aria-selected="false">Dane</button></nav>
 <h1>Dziennik przejazdów</h1>
 <p class="sub">Dane z MyToyota. Wszystko zostaje na tym telefonie.</p>
 <div class="warn" id="bkWarn" hidden style="margin:0 0 14px;display:flex;align-items:center;gap:10px"><span id="bkWarnT" style="flex:1"></span><button class="btn p" id="bkWarnB" style="min-height:40px;padding:0 14px">Zapisz kopię</button></div>
@@ -84,10 +88,14 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
  <div class="row" style="margin-top:14px"><button class="btn" id="cancel">Anuluj</button><button class="btn p" id="save">Zapisz przejazd</button></div>
 </section>
 
+<div class="tab" id="tab-p">
 <section class="card"><h2>Bak</h2><div id="home"></div></section>
 <section class="card"><h2 id="sh">Podsumowanie archiwum</h2>
  <div class="seg" id="seg"><button data-p="30">30 dni</button><button data-p="month">Miesiąc</button><button data-p="year">Rok</button><button data-p="all">Wszystko</button><button data-p="tank">Bak: od tankowania do tankowania</button></div>
  <select id="tankSel" aria-label="Wybierz bak" hidden></select><div id="sum"></div><button class="btn" id="rptBtn" style="width:100%;margin-top:14px" hidden>Eksport PDF (raport z tego filtra)</button></section>
+<section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
+</div>
+<div class="tab" id="tab-a" hidden>
 <section class="card"><h2>Trendy</h2><div id="trends"></div></section>
 <section class="card"><h2>Moje trasy</h2><div id="routes"></div></section>
 <section class="card"><h2>Temperatura</h2>
@@ -95,7 +103,8 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 <label class="f">Miasto<input id="locIn" type="text" placeholder="wpisz nazwę miasta"></label>
 <div class="row"><button class="btn" id="locSave">Ustaw miasto</button><button class="btn" id="tempFill">Uzupełnij zapisane</button></div>
 <p class="mute" id="locInfo"></p><div id="tempTbl"></div></section>
-<section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
+</div>
+<div class="tab" id="tab-d" hidden>
 <section class="card"><h2>Tankowania</h2>
  <p class="mute" style="margin:-6px 0 10px">Przejazd dostaje cenę paliwa z ostatniego tankowania przed nim.</p>
  <div id="flist"></div>
@@ -114,6 +123,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
  <input id="imp" type="file" hidden>
  <p class="mute">Dane leżą w pamięci przeglądarki i znikną, jeśli wyczyścisz dane Chrome. Zapisuj kopię na Dysk Google co jakiś czas. Wczytasz ją przyciskiem Import JSON, który scala dane i niczego nie kasuje.</p>
 </section>
+</div>
 </main>
 <div id="report" hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" defer></script>
@@ -210,6 +220,7 @@ $('#save').onclick=async()=>{
  if(t.temp==null)t.temp=await tempFor(t);
  if(editId!=null){t.id=editId;t.createdAt=editCreated;await put(t)}else{t.createdAt=Date.now();await add(t)}
  if(!inP(t.date))period='all';
+ showTab('p');
  editId=null;$('#form').hidden=true;st('');render();
 };
 
@@ -271,6 +282,17 @@ function inP(d){
 $('#seg').onclick=e=>{const b=e.target.closest('[data-p]');if(b){period=b.dataset.p;render()}};
 $('#tankSel').onchange=e=>{tankKey=e.target.value;render()};
 /*FILTER-END*/
+/*TABS-START*/
+const TAB_K='przejazdy_tab';
+function showTab(k,save){
+ if(!['p','a','d'].includes(k))k='p';
+ document.querySelectorAll('.tab').forEach(e=>{e.hidden=e.id!=='tab-'+k});
+ document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===k)));
+ if(save)try{localStorage.setItem(TAB_K,k)}catch{}
+}
+document.querySelector('.tabs').onclick=e=>{const b=e.target.closest('button');if(b){showTab(b.dataset.tab,1);scrollTo(0,0)}};
+showTab((()=>{try{return localStorage.getItem(TAB_K)}catch{return null}})()||'p');
+/*TABS-END*/
 /*TEMP-START*/
 const LOC_K='przejazdy_loc',getLoc=()=>{try{return JSON.parse(localStorage.getItem(LOC_K)||'null')}catch{return null}},hr=t=>t.date+'T'+(t.time||'12:00').slice(0,2),iso=ms=>new Date(ms).toLocaleDateString('sv-SE');
 async function fetchTemps(L,d1,d2){
