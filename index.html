@@ -96,6 +96,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 <section class="card"><h2 id="hh">Historia przejazdów</h2><p class="mute" style="margin:-6px 0 10px">Dotknij wpisu, żeby zobaczyć szczegóły i poprawić dane.</p><div id="list"></div></section>
 </div>
 <div class="tab" id="tab-a" hidden>
+<section class="card"><h2>Weryfikacja baków</h2><div id="verify"></div></section>
 <section class="card"><h2>Trendy</h2><div id="trends"></div></section>
 <section class="card"><h2>Moje trasy</h2><div id="routes"></div></section>
 <section class="card"><h2>Temperatura</h2>
@@ -111,7 +112,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
  <div class="row" style="margin-top:10px"><button class="btn" id="fAdd">Dodaj tankowanie</button><label class="btn" for="impF">Import z Fuelio</label></div>
  <input id="impF" type="file" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel" hidden>
  <div id="fform" hidden style="margin-top:12px">
-  <div class="grid"><label class="f">Data<input id="g_date" type="date"></label><label class="f">Godzina<input id="g_time" type="time"></label><label class="f">Cena za litr (zł)<input id="g_price" inputmode="decimal"></label><label class="f">Litry (opcjonalnie)<input id="g_l" inputmode="decimal"></label><label class="f">Przebieg licznika, km (opcjonalnie)<input id="g_odo" inputmode="decimal"></label></div>
+  <div class="grid"><label class="f">Data<input id="g_date" type="date"></label><label class="f">Godzina<input id="g_time" type="time"></label><label class="f">Cena za litr (zł)<input id="g_price" inputmode="decimal"></label><label class="f">Litry (opcjonalnie)<input id="g_l" inputmode="decimal"></label><label class="f">Przebieg licznika, km (opcjonalnie)<input id="g_odo" inputmode="decimal"></label><label class="f">Spalanie z komputera za bak zamknięty tym tankowaniem, l/100 km (opcjonalnie)<input id="g_comp" inputmode="decimal"></label></div>
   <div class="row" style="margin-top:12px"><button class="btn" id="gCancel">Anuluj</button><button class="btn p" id="gSave">Zapisz tankowanie</button></div>
  </div>
 </section>
@@ -141,7 +142,7 @@ const today=()=>new Date().toLocaleDateString('sv-SE');
 const DB=new Promise((res,rej)=>{const q=indexedDB.open('przejazdy',2);q.onupgradeneeded=()=>{const d=q.result;for(const n of['trips','fuel'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id',autoIncrement:true})};q.onblocked=()=>alert('Zamknij inne okna tej aplikacji i otwórz ją ponownie.');q.onsuccess=()=>{q.result.onversionchange=()=>q.result.close();res(q.result)};q.onerror=()=>rej(q.error)});
 const tx=async(mode,fn,st='trips')=>{const db=await DB;return new Promise((res,rej)=>{const t=db.transaction(st,mode),o=fn(t.objectStore(st));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
 const all=()=>tx('readonly',s=>s.getAll()),add=t=>tx('readwrite',s=>s.add(t)),put=t=>tx('readwrite',s=>s.put(t)),del=id=>tx('readwrite',s=>s.delete(id));
-const allF=()=>tx('readonly',s=>s.getAll(),'fuel'),addF=f=>tx('readwrite',s=>s.add(f),'fuel'),delF=id=>tx('readwrite',s=>s.delete(id),'fuel');
+const allF=()=>tx('readonly',s=>s.getAll(),'fuel'),addF=f=>tx('readwrite',s=>s.add(f),'fuel'),delF=id=>tx('readwrite',s=>s.delete(id),'fuel'),putF=f=>tx('readwrite',s=>s.put(f),'fuel');
 let FUEL=[];
 const key=t=>[t.date,t.dist,t.dur,t.cons].join('|');
 
@@ -265,7 +266,7 @@ function fuelioParse(text){
 /*FUEL-END*/
 function renderFuel(){
  const d=f=>new Date(f.date+'T12:00').toLocaleDateString('pl-PL',{day:'numeric',month:'short',year:'numeric'})+(f.time?', '+f.time:'');
- $('#flist').innerHTML=FUEL.length?[...FUEL].reverse().map(f=>`<div class="trip"><div style="flex:1"><div style="font-weight:600">${d(f)}</div><div class="mute">${nf(f.price,2)} zł/l${f.litres?`, ${nf(f.litres,2)} l`:''}${f.total?`, razem ${nf(f.total,2)} zł`:''}${f.odo?`, ${nf(f.odo,0)} km`:''}${f.place?`, ${esc(f.place)}`:''}</div></div><button class="btn x" data-delf="${f.id}" aria-label="Usuń tankowanie">✕</button></div>`).join(''):'<p class="mute">Brak tankowań. Zaimportuj eksport z Fuelio albo dodaj tankowanie ręcznie, a koszty przejazdów policzą się same.</p>';
+ $('#flist').innerHTML=FUEL.length?[...FUEL].reverse().map(f=>`<div class="trip"><div style="flex:1;cursor:pointer" data-editf="${f.id}" role="button" tabindex="0"><div style="font-weight:600">${d(f)}</div><div class="mute">${nf(f.price,2)} zł/l${f.litres?`, ${nf(f.litres,2)} l`:''}${f.total?`, razem ${nf(f.total,2)} zł`:''}${f.odo?`, ${nf(f.odo,0)} km`:''}${f.comp?`, komputer ${nf(f.comp,1)} l/100 km`:''}${f.place?`, ${esc(f.place)}`:''}</div></div><button class="btn x" data-delf="${f.id}" aria-label="Usuń tankowanie">✕</button></div>`).join(''):'<p class="mute">Brak tankowań. Zaimportuj eksport z Fuelio albo dodaj tankowanie ręcznie, a koszty przejazdów policzą się same.</p>';
 }
 /*FILTER-START*/
 let period='all',tankKey=null;
@@ -388,6 +389,25 @@ function renderRoutes(ALL){
  const L=Object.values(R).filter(m=>m.c>1).sort((a,b)=>b.c-a.c||b.d-a.d).slice(0,12);
  $('#routes').innerHTML=L.length?`<table class="rt"><thead><tr><th>Trasa</th><th class="r">Razy</th><th class="r">Śr. km</th><th class="r">l/100</th><th class="r">EV %</th></tr></thead><tbody>${L.map(m=>`<tr><td>${esc(m.n)}</td><td class="r">${m.c}</td><td class="r">${nf(m.d/m.c)}</td><td class="r">${m.fd?nf(m.f/m.fd*100,1):'—'}</td><td class="r">${nf(m.e/m.d*100,0)}</td></tr>`).join('')}</tbody></table><p class="mute" style="margin:8px 0 0">Trasy z identycznym opisem, przejechane co najmniej dwa razy. „Dom - Praca” i „Praca - Dom” to osobne trasy.</p>`:'<p class="mute">Pojawią się tu trasy, które przejedziesz co najmniej dwa razy pod tym samym opisem.</p>';
 }
+function renderVerify(ALL){
+ const el=$('#verify'),T=ALL.filter(t=>t.dist>0).map(t=>({t,r:calc(t)})),R=[],sum=(a,f)=>a.reduce((q,x)=>q+f(x),0);
+ segs(FUEL).forEach(({a,b,s,e})=>{
+  if(!b||!(b.litres>0)||!(a.odo>0)||!(b.odo>a.odo))return;
+  const od=b.odo-a.odo,tt=T.filter(({t})=>{const k=tk(t);return k>=s&&k<e}),D=sum(tt,x=>x.t.dist),fx=tt.filter(x=>x.r.fuel!=null),F=sum(fx,x=>x.r.fuel),Fd=sum(fx,x=>x.t.dist);
+  R.push({d:sd(b.date),od,lit:b.litres,fu:b.litres/od*100,cp:b.comp>0?b.comp:null,F,Fd,my:Fd?F/Fd*100:null,D,weak:od<250||D/od<.95});
+ });
+ if(!R.length){el.innerHTML='<p class="mute">Karta pojawi się po następnym tankowaniu. Potrzebne są litry i przebieg licznika w obu tankowaniach, a spalanie z komputera jest opcjonalne.</p>';return}
+ const dv=(x,r)=>{const p=(x-r)/r*100;return`<br><small class="mute">${p>=0?'+':'−'}${nf(Math.abs(p),0)}%</small>`},
+  vd=(x,r)=>{const p=(x-r)/r*100;return Math.abs(p)<1?'zgadza się z Fuelio (±1%)':(p<0?'zaniża':'zawyża')+' o '+nf(Math.abs(p),1)+'%'},
+  rows=R.map(x=>`<tr><td>${x.d}${x.weak?' *':''}</td><td class="r">${nf(x.fu,2)}</td><td class="r">${x.cp!=null?nf(x.cp,1)+dv(x.cp,x.fu):'—'}</td><td class="r">${x.my!=null?nf(x.my,2)+dv(x.my,x.fu):'—'}</td><td class="r">${nf(x.D/x.od*100,0)}%</td></tr>`).join('');
+ const RC=R.filter(x=>x.cp!=null),RM=R.filter(x=>x.my!=null);
+ let h=`<table class="rt"><thead><tr><th>Bak</th><th class="r">Fuelio</th><th class="r">Komputer</th><th class="r">MyToyota</th><th class="r">Pokr.</th></tr></thead><tbody>${rows}</tbody></table><p class="mute" style="margin:8px 0 0">Wartości w l/100 km; data to tankowanie zamykające bak; mała liczba pod wartością to odchylenie od Fuelio. „Pokr.” to udział kilometrów z Twoich wpisów w kilometrach z licznika.${R.some(x=>x.weak)?' * Bak krótszy niż 250 km lub pokrycie poniżej 95%: wynik orientacyjny.':''}</p><h3 style="font-size:15px;margin:16px 0 4px">Łącznie (narastająco)</h3>`;
+ h+=kv('Komputer względem Fuelio',RC.length?vd(sum(RC,x=>x.cp*x.od/100)/sum(RC,x=>x.od)*100,sum(RC,x=>x.lit)/sum(RC,x=>x.od)*100)+` (${RC.length} z ${R.length} baków)`:'brak wpisanych wartości z komputera');
+ h+=kv('MyToyota z wpisów względem Fuelio',RM.length?vd(sum(RM,x=>x.F)/sum(RM,x=>x.Fd)*100,sum(RM,x=>x.lit)/sum(RM,x=>x.od)*100):'—');
+ h+=kv('Pokrycie km wpisami',nf(sum(R,x=>x.D)/sum(R,x=>x.od)*100,0)+'%')+kv('Kilometrów w porównaniu',nf(sum(R,x=>x.od),0)+' km');
+ if(sum(R,x=>x.od)<600)h+='<p class="mute" style="margin:8px 0 0">Wynik z jednego krótkiego baku jest niepewny: błąd tankowania rzędu pół litra to kilka procent. Stabilizuje się po kilku bakach.</p>';
+ el.innerHTML=h;
+}
 function buildReport(){
  const{S,seg,period:p}=RPT,ds=d=>new Date(d+'T12:00').toLocaleDateString('pl-PL'),D=S.map(x=>x.t.date).sort(),mo=p==='year'||p==='all',
   lab=p==='tank'&&seg?'bak '+dd(seg.a)+' → '+(seg.b?dd(seg.b):'trwa'):PL[p]||'całość',
@@ -421,6 +441,7 @@ async function render(){
  try{renderHome(ALL)}catch(e){}
  try{renderRoutes(ALL)}catch(e){}
  try{renderTemp(ALL)}catch(e){}
+ try{renderVerify(ALL)}catch(e){}
  const SG=segs(FUEL).reverse();let seg=null;
  if(period==='tank'){seg=SG.find(x=>fk(x.a)===tankKey)||SG.find(x=>x.b)||SG[0]||null;if(seg)tankKey=fk(seg.a);L=seg?L.filter(t=>{const k=tk(t);return k>=seg.s&&k<seg.e}):[]}
  $('#tankSel').hidden=!(period==='tank'&&SG.length);
@@ -544,7 +565,7 @@ $('#imp').onchange=async e=>{
   let nF=0;const exF=new Set((await allF()).map(fkey));
   for(const x of j.fuel||[]){
    if(!/^\d{4}-\d{2}-\d{2}$/.test(x.date)||!(num(x.price)>0))continue;
-   const f={date:x.date,time:/^\d{2}:\d{2}$/.test(x.time)?x.time:'',litres:num(x.litres),total:num(x.total),price:num(x.price),place:String(x.place||'').slice(0,100),odo:num(x.odo),createdAt:Date.now()};
+   const f={date:x.date,time:/^\d{2}:\d{2}$/.test(x.time)?x.time:'',litres:num(x.litres),total:num(x.total),price:num(x.price),place:String(x.place||'').slice(0,100),odo:num(x.odo),comp:num(x.comp),createdAt:Date.now()};
    if(exF.has(fkey(f)))continue;exF.add(fkey(f));await addF(f);nF++;
   }
   period='all';alert(`Zaimportowano przejazdów: ${n}`+(nF?`, tankowań: ${nF}`:''));render();
@@ -552,15 +573,24 @@ $('#imp').onchange=async e=>{
 };
 
 /* tankowania */
-$('#fAdd').onclick=()=>{$('#g_date').value=today();['g_time','g_price','g_l','g_odo'].forEach(i=>$('#'+i).value='');$('#fform').hidden=false};
-$('#gCancel').onclick=()=>{$('#fform').hidden=true};
+let editFid=null;
+$('#fAdd').onclick=()=>{editFid=null;$('#g_date').value=today();['g_time','g_price','g_l','g_odo','g_comp'].forEach(i=>$('#'+i).value='');$('#fform').hidden=false};
+$('#gCancel').onclick=()=>{editFid=null;$('#fform').hidden=true};
 $('#gSave').onclick=async()=>{
  const price=num($('#g_price').value),l=num($('#g_l').value),date=$('#g_date').value;
  if(!date||!(price>0))return alert('Podaj datę i cenę za litr.');
- await addF({date,time:$('#g_time').value,price,litres:l,total:l?Math.round(l*price*100)/100:null,place:'',odo:num($('#g_odo').value),createdAt:Date.now()});
- $('#fform').hidden=true;render();
+ const old=editFid!=null?FUEL.find(x=>x.id===editFid):null,rec={date,time:$('#g_time').value,price,litres:l,total:old&&old.total&&l===old.litres&&price===old.price?old.total:(l?Math.round(l*price*100)/100:null),odo:num($('#g_odo').value),comp:num($('#g_comp').value)};
+ if(old)await putF({...old,...rec});else await addF({...rec,place:'',createdAt:Date.now()});
+ editFid=null;$('#fform').hidden=true;render();
 };
-$('#flist').onclick=async e=>{const b=e.target.closest('[data-delf]');if(b&&confirm('Usunąć to tankowanie?')){await delF(+b.dataset.delf);render()}};
+$('#flist').onclick=async e=>{
+ const b=e.target.closest('[data-delf]');
+ if(b){if(confirm('Usunąć to tankowanie?')){await delF(+b.dataset.delf);render()}return}
+ const r=e.target.closest('[data-editf]'),f=r&&FUEL.find(x=>x.id===+r.dataset.editf);if(!f)return;
+ const v=x=>x==null?'':String(x).replace('.',',');
+ editFid=f.id;$('#g_date').value=f.date;$('#g_time').value=f.time||'';$('#g_price').value=v(f.price);$('#g_l').value=v(f.litres);$('#g_odo').value=v(f.odo);$('#g_comp').value=v(f.comp);
+ $('#fform').hidden=false;$('#fform').scrollIntoView({block:'center'});
+};
 $('#impF').onchange=async e=>{
  const f=e.target.files[0];e.target.value='';if(!f)return;
  try{
