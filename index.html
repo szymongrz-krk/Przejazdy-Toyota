@@ -97,6 +97,7 @@ select:focus-visible{outline:3px solid var(--ev);outline-offset:2px}
 </div>
 <div class="tab" id="tab-a" hidden>
 <section class="card"><h2>Weryfikacja baków</h2><div id="verify"></div></section>
+<section class="card"><h2>Spalanie</h2><div id="sp1"></div><div id="sp2"></div><h3 style="font-size:15px;margin:18px 0 4px">Średnia baku narastająco (l/100 km)</h3><select id="avgSel" aria-label="Wybierz bak" hidden></select><div id="sp3"></div></section>
 <section class="card"><h2>Trendy</h2><div id="trends"></div></section>
 <section class="card"><h2>Moje trasy</h2><div id="routes"></div></section>
 <section class="card"><h2>Temperatura</h2>
@@ -310,10 +311,8 @@ async function tempFor(t){const L=getLoc();if(!L||!t.date)return null;try{const 
 const tmp=v=>v==null?'':`<b class="tc ${v<0?'cold':v<10?'cool':v<=25?'warm':'hot'}">${nf(v,1)} °C</b>`;
 function renderTemp(ALL){
  const L=getLoc();$('#locInfo').textContent=L?`Miasto: ${L.name}.`:'Miasto nie jest ustawione, więc temperatura nie jest pobierana.';
- const bins=[['poniżej 0 °C',-1e9,0],['0 do 5 °C',0,5],['5 do 10 °C',5,10],['10 do 15 °C',10,15],['15 do 20 °C',15,20],['20 °C i więcej',20,1e9]],
-  T=ALL.filter(t=>t.temp!=null&&t.dist>0).map(t=>({t,r:calc(t)}));
- const rows=bins.map(([l,a,b])=>{const x=T.filter(({t})=>t.temp>=a&&t.temp<b);if(!x.length)return'';const D=x.reduce((q,y)=>q+y.t.dist,0),fx=x.filter(y=>y.r.fuel!=null),F=fx.reduce((q,y)=>q+y.r.fuel,0),Fd=fx.reduce((q,y)=>q+y.t.dist,0),E=x.reduce((q,y)=>q+(y.t.evDist||0),0);return`<tr><td>${l}</td><td class="r">${x.length}</td><td class="r">${nf(D,0)}</td><td class="r">${Fd?nf(F/Fd*100,1):'—'}</td><td class="r">${nf(E/D*100,0)}</td></tr>`}).join('');
- $('#tempTbl').innerHTML=rows?`<table class="rt"><thead><tr><th>Temperatura</th><th class="r">Przejazdy</th><th class="r">km</th><th class="r">l/100</th><th class="r">EV %</th></tr></thead><tbody>${rows}</tbody></table><p class="mute" style="margin:8px 0 0">Temperatura z ${T.length} z ${ALL.length} przejazdów. Różnice zależą też od długości tras, więc porównuj ostrożnie.</p>`:'<p class="mute">Brak przejazdów z temperaturą. Ustaw miasto i dotknij „Uzupełnij zapisane”.</p>';
+ const n=ALL.filter(t=>t.temp!=null).length;
+ $('#tempTbl').innerHTML=`<p class="mute" style="margin:10px 0 0">Temperatura jest zapisana dla ${n} z ${ALL.length} przejazdów. Jej wpływ na spalanie zobaczysz na wykresie w karcie „Spalanie”.</p>`;
 }
 $('#locSave').onclick=async()=>{
  const q=$('#locIn').value.trim();if(!q)return alert('Wpisz nazwę miasta.');
@@ -340,7 +339,7 @@ function chart(ser,lab,dec){
  [lo,(lo+hi)/2,hi].forEach(v=>{g+=`<line x1="${PL}" x2="${W-PR}" y1="${f(y(v))}" y2="${f(y(v))}" style="stroke:var(--line)"/><text x="${PL-4}" y="${f(y(v)+3)}" text-anchor="end" style="fill:var(--mute);font-size:10px">${nf(v,dec)}</text>`});
  const st=Math.ceil(n/5);
  lab.forEach((s,i)=>{if(i%st===0)g+=`<text x="${f(x(i))}" y="${H-6}" text-anchor="middle" style="fill:var(--mute);font-size:10px">${s}</text>`});
- ser.forEach(s=>{let d='',dots='',pr=false;s.v.forEach((v,i)=>{if(v==null){pr=false;return}d+=(pr?'L':'M')+f(x(i))+' '+f(y(v));pr=true;dots+=`<circle cx="${f(x(i))}" cy="${f(y(v))}" r="3.5" style="fill:${s.c}"/>`});g+=`<path d="${d}" style="fill:none;stroke:${s.c};stroke-width:2"/>${dots}`});
+ ser.forEach(s=>{let d='',dots='',pr=false;s.v.forEach((v,i)=>{if(v==null){pr=false;return}d+=(pr?'L':'M')+f(x(i))+' '+f(y(v));pr=true;if(!s.nd)dots+=`<circle cx="${f(x(i))}" cy="${f(y(v))}" r="3.5" style="fill:${s.c}"/>`});g+=`<path d="${d}" style="fill:none;stroke:${s.c};stroke-width:2${s.d?';stroke-dasharray:5 4':''}"/>${dots}`});
  const leg=ser.map(s=>{const l=[...s.v].reverse().find(v=>v!=null);return`<span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.c};margin-right:5px"></i>${s.n}: <b style="color:var(--ink)">${nf(l,dec)}</b></span>`}).join('');
  return`<div class="mute" style="display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 6px">${leg}</div><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Wykres: ${esc(ser.map(s=>s.n).join(', '))}" style="display:block">${g}</svg>`;
 }
@@ -408,6 +407,44 @@ function renderVerify(ALL){
  if(sum(R,x=>x.od)<600)h+='<p class="mute" style="margin:8px 0 0">Wynik z jednego krótkiego baku jest niepewny: błąd tankowania rzędu pół litra to kilka procent. Stabilizuje się po kilku bakach.</p>';
  el.innerHTML=h;
 }
+let avgKey=null;
+function scatter(P,ref){
+ const W=300,H=190,PL=34,PR=8,PT=10,PB=24,ys=P.map(p=>p.y).sort((a,b)=>a-b),p90=ys[Math.floor(ys.length*.9)]||10,ymax=Math.max(10,2*Math.ceil(p90*1.4/2)),lx=Math.log10,
+  x0=lx(Math.min(...P.map(p=>p.x))*.85),x1=lx(Math.max(...P.map(p=>p.x))*1.15),
+  X=v=>PL+(lx(v)-x0)/(x1-x0)*(W-PL-PR),Y=v=>PT+(H-PT-PB)*(1-Math.min(v,ymax)/ymax),f=v=>v.toFixed(1),
+  col=t=>t==null?'#8a97a1':t<0?'#2f6fe4':t<10?'#f2f4f6':t<=25?'#f4c20d':'#d4101f';
+ let g='',clip=0;
+ [0,ymax/2,ymax].forEach(v=>{g+=`<line x1="${PL}" x2="${W-PR}" y1="${f(Y(v))}" y2="${f(Y(v))}" style="stroke:var(--line)"/><text x="${PL-4}" y="${f(Y(v)+3)}" text-anchor="end" style="fill:var(--mute);font-size:10px">${nf(v,0)}</text>`});
+ [0.5,1,2,5,10,20,50].filter(v=>lx(v)>=x0&&lx(v)<=x1).forEach(v=>{g+=`<text x="${f(X(v))}" y="${H-8}" text-anchor="middle" style="fill:var(--mute);font-size:10px">${v}</text>`});
+ if(ref!=null)g+=`<line x1="${PL}" x2="${W-PR}" y1="${f(Y(ref))}" y2="${f(Y(ref))}" style="stroke:var(--acc);stroke-width:1.5;stroke-dasharray:5 4"/>`;
+ P.forEach(p=>{if(p.y>ymax)clip++;g+=`<circle cx="${f(X(p.x))}" cy="${f(Y(p.y))}" r="4" style="fill:${col(p.t)};fill-opacity:.92;stroke:rgba(128,128,128,.85);stroke-width:1"/>`});
+ return{svg:`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Wykres rozrzutu: spalanie a długość trasy" style="display:block">${g}</svg>`,clip,ymax};
+}
+function renderSpal(ALL){
+ const T=ALL.filter(t=>t.dist>0&&t.cons!=null).map(t=>({t,r:calc(t)})).filter(x=>x.r.fuel!=null),
+  h3=(s,m)=>`<h3 style="font-size:15px;margin:${m}px 0 4px">${s}</h3>`,note=s=>`<p class="mute" style="margin:6px 0 0">${s}</p>`,
+  sum=(a,f)=>a.reduce((q,x)=>q+f(x),0),w=a=>a.length?sum(a,x=>x.r.fuel)/sum(a,x=>x.t.dist)*100:null,
+  dot=(c,s)=>`<span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c};box-shadow:inset 0 0 0 1px rgba(128,128,128,.8);margin-right:5px"></i>${s}</span>`;
+ if(T.length<3){$('#sp1').innerHTML=note('Wykresy pojawią się po wczytaniu kilku przejazdów.');$('#sp2').innerHTML='';$('#sp3').innerHTML='';$('#avgSel').hidden=true;return}
+ const avg=w(T),S=scatter(T.map(x=>({x:x.t.dist,y:x.t.cons,t:x.t.temp})),avg);
+ $('#sp1').innerHTML=h3('Spalanie a długość trasy',0)+`<div class="mute" style="display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 6px">${dot('#2f6fe4','poniżej 0 °C')}${dot('#f2f4f6','0–10')}${dot('#f4c20d','10–25')}${dot('#d4101f','powyżej 25')}</div>`+S.svg+note(`Oś pozioma: dystans w km (skala logarytmiczna). Linia przerywana to średnia ${nf(avg,2)} l/100 km.${S.clip?` Przejazdów powyżej ${S.ymax} l/100 km: ${S.clip} (narysowane na górnej krawędzi).`:''}`);
+ const bins=[['&lt;0',-1e9,0],['0–5',0,5],['5–10',5,10],['10–15',10,15],['15–20',15,20],['20+',20,1e9]],
+  pick=(a,b,c)=>T.filter(({t})=>t.temp!=null&&t.temp>=a&&t.temp<b&&(c?t.dist<=12:t.dist>12)),
+  B=bins.map(([l,a,b])=>({l,c:pick(a,b,1),r:pick(a,b,0)})).filter(x=>x.c.length||x.r.length),v=a=>a.length>=2?w(a):null;
+ $('#sp2').innerHTML=h3('Spalanie a temperatura: miasto i trasa',18)+(B.some(x=>v(x.c)!=null||v(x.r)!=null)?chart([{n:'Miasto (do 12 km)',c:'var(--org)',v:B.map(x=>v(x.c))},{n:'Trasa (powyżej 12 km)',c:'var(--ev)',v:B.map(x=>v(x.r))}],B.map(x=>x.l),1)+note('Oś pozioma: temperatura w °C. Punkt pojawia się od 2 przejazdów w przedziale. Przejazdów (miasto / trasa): '+B.map(x=>`${x.l}: ${x.c.length}/${x.r.length}`).join(', ')+'.'):note('Za mało przejazdów z temperaturą. Ustaw miasto i uzupełnij temperatury w karcie Temperatura.'));
+ const SG=segs(FUEL).reverse(),inS=(s,{t})=>{const k=tk(t);return k>=s.s&&k<s.e},cnt=s=>T.filter(x=>inS(s,x)).length;
+ let seg=SG.find(x=>fk(x.a)===avgKey)||SG.find(x=>!x.b&&cnt(x)>=5)||SG.find(x=>x.b&&cnt(x)>=2)||SG[0]||null;
+ if(seg)avgKey=fk(seg.a);
+ const sel=$('#avgSel');sel.hidden=!SG.length;sel.innerHTML=SG.map(x=>`<option value="${esc(fk(x.a))}"${x===seg?' selected':''}>${dd(x.a)} → ${x.b?dd(x.b):'trwa'}</option>`).join('');
+ const L=(seg?T.filter(x=>inS(seg,x)):T).slice().sort((a,b)=>(a.t.date+(a.t.time||'')).localeCompare(b.t.date+(b.t.time||'')));
+ if(L.length<2){$('#sp3').innerHTML=note('Za mało przejazdów w tym baku.');return}
+ let F=0,D=0;const n=L.length,ser=[{n:'Średnia baku',c:'var(--acc)',v:L.map(x=>{F+=x.r.fuel;D+=x.t.dist;return F/D*100}),nd:1}];
+ if(seg&&seg.b){const{a,b}=seg,lit=b.litres>0?b.litres:null,od=a.odo>0&&b.odo>a.odo?b.odo-a.odo:null;
+  if(lit&&od)ser.push({n:'Fuelio',c:'var(--ev)',v:Array(n).fill(lit/od*100),nd:1,d:1});
+  if(b.comp>0)ser.push({n:'Komputer',c:'var(--org)',v:Array(n).fill(b.comp),nd:1,d:1})}
+ $('#sp3').innerHTML=chart(ser,L.map(x=>sd(x.t.date)),2)+note('Oś pozioma: kolejne przejazdy w baku, podpisane datą. '+(seg&&seg.b?'Linie przerywane to wartości z Fuelio i z komputera, jeśli są wpisane.':'Po zamknięciu baku pojawią się tu linie z Fuelio i z komputera.'));
+}
+$('#avgSel').onchange=e=>{avgKey=e.target.value;render()};
 function buildReport(){
  const{S,seg,period:p}=RPT,ds=d=>new Date(d+'T12:00').toLocaleDateString('pl-PL'),D=S.map(x=>x.t.date).sort(),mo=p==='year'||p==='all',
   lab=p==='tank'&&seg?'bak '+dd(seg.a)+' → '+(seg.b?dd(seg.b):'trwa'):PL[p]||'całość',
@@ -442,6 +479,7 @@ async function render(){
  try{renderRoutes(ALL)}catch(e){}
  try{renderTemp(ALL)}catch(e){}
  try{renderVerify(ALL)}catch(e){}
+ try{renderSpal(ALL)}catch(e){}
  const SG=segs(FUEL).reverse();let seg=null;
  if(period==='tank'){seg=SG.find(x=>fk(x.a)===tankKey)||SG.find(x=>x.b)||SG[0]||null;if(seg)tankKey=fk(seg.a);L=seg?L.filter(t=>{const k=tk(t);return k>=seg.s&&k<seg.e}):[]}
  $('#tankSel').hidden=!(period==='tank'&&SG.length);
