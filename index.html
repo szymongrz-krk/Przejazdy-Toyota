@@ -374,8 +374,8 @@ function renderHome(ALL){
  if(!SG.length){el.innerHTML=note('Dodaj pierwsze tankowanie (sekcja Tankowania), a zobaczysz tu bieżący i ostatni bak.');return}
  let h='';const cur=SG.find(x=>!x.b),cl=SG.filter(x=>x.b),last=cl[0];
  if(cur){const p=part(cur);h+=h3('Bieżący bak (od '+dd(cur.a)+')')+(p.n?kv('Przejechano (z przejazdów)',nf(p.D,0)+' km')+kv('Paliwo wg MyToyota',nf(p.F,1)+' l')+kv('Spalanie wg MyToyota',cons(p.F,p.D))+kv('Udział EV',pc(p.D?p.ev/p.D*100:null))+kv('Koszt paliwa',cur.a.price>0?nf(p.F*cur.a.price,2)+' zł':'—')+(cur.a.odo>0?kv('Szac. stan licznika',nf(cur.a.odo+p.D,0)+' km'):''):note('Brak przejazdów od ostatniego tankowania.'))}
- if(last){const{a,b}=last,p=part(last),lit=b.litres>0?b.litres:null,od=a.odo>0&&b.odo>a.odo?b.odo-a.odo:null;
-  h+=h3('Ostatni bak ('+dd(a)+' → '+dd(b)+')')+kv('Spalanie jak w Fuelio',lit&&od?nf(lit/od*100,2)+' l/100 km':'—')+kv('Spalanie wg MyToyota',cons(p.F,p.D))+kv('Zasięg wg licznika',od?nf(od,0)+' km':'—')+kv('Koszt tankowania',b.total>0?nf(b.total,2)+' zł':lit&&b.price>0?nf(lit*b.price,2)+' zł':'—');
+ if(last){const{a,b}=last,p=part(last),lit=b.litres>0?b.litres:null,od=a.odo>0&&b.odo>a.odo?b.odo-a.odo:null,ct=b.total>0?b.total:(lit&&b.price>0?lit*b.price:null);
+  h+=h3('Ostatni bak ('+dd(a)+' → '+dd(b)+')')+kv('Spalanie jak w Fuelio',lit&&od?nf(lit/od*100,2)+' l/100 km':'—')+kv('Spalanie wg MyToyota',cons(p.F,p.D))+kv('Zasięg wg licznika',od?nf(od,0)+' km':'—')+kv('Koszt tankowania',ct?nf(ct,2)+' zł':'—')+kv('Koszt na 100 km (wg tankowania)',ct&&od?nf(ct/od*100,2)+' zł':'—');
   if(od&&lit)h+=kv('Poza zapisanymi przejazdami',`ok. ${nf(Math.max(0,od-p.D),0)} km i ${nf(Math.max(0,lit-p.F),1)} l`);
   const rs=cl.map(x=>x.a.odo>0&&x.b.odo>x.a.odo?x.b.odo-x.a.odo:0).filter(v=>v>0);
   if(rs.length>1)h+=kv('Średni zasięg na bak',nf(rs.reduce((q,v)=>q+v,0)/rs.length,0)+' km')
